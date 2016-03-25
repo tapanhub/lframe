@@ -1,6 +1,9 @@
 #ifndef _LFRAME_H
 #define _LFRAME_H
 #include <linux/kprobes.h>
+#include <linux/debugfs.h> 
+#include <linux/fs.h>   
+#include <linux/time.h>
 
 typedef void (*lframe_init_t)(void *);
 typedef void (*lframe_exit_t)(void *);
@@ -47,4 +50,5 @@ static inline void uninstall_probe(struct jprobe *probe, char *symbol)
 	unregister_jprobe(probe);
 	printk("jprobe %s unregistered\n", symbol?:"");
 }
+extern struct dentry *basedir; 
 #endif
