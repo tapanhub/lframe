@@ -12,6 +12,7 @@
 
 #define  tcp_probe_fun "tcp_transmit_skb"
 #define  tcp_connect_fun "tcp_finish_connect"
+#define  tcp_set_fun "tcp_set_state"
 
 
 #define  COMMAND_MAX_LEN 128
@@ -33,7 +34,7 @@ static ssize_t tcp_probe_write(struct file *fp, const char __user *user_buffer,
         if(count > COMMAND_MAX_LEN ) 
                 return -EINVAL; 
   
-        simple_write_to_buffer(command_buf, COMMAND_MAX_LEN, position, user_buffer, count); 
+        //simple_write_to_buffer(command_buf, COMMAND_MAX_LEN, position, user_buffer, count); 
 	if (strncmp(command_buf, "clear", strlen("clear")) == 0) {
 		/*TODO clear logs */
 	} else {
@@ -69,6 +70,19 @@ static void __exit exit_debug(void)
     debugfs_remove_recursive(dirret); 
 } 
 
+void my_tcp_set_state(struct sock *sk, int state)
+{
+	struct inet_sock *inet = inet_sk(sk);
+	unsigned char *dip = (unsigned char *)&inet->inet_daddr;
+	unsigned char *sip = (unsigned char *)&inet->inet_saddr;
+	if (state = TCP_ESTABLISHED) {
+		printk("tcp connection established(sport=%d,dport=%d, sip=%d.%d.%d.%d dip=%d.%d.%d.%d\n", 
+			ntohs(inet->inet_sport), ntohs(inet->inet_dport), sip[0], sip[1], sip[2], sip[3], 
+			dip[0], dip[1], dip[2], dip[3]);
+	}
+	jprobe_return();
+}
+
 void my_tcp_finish_connect(struct sock *sk, struct sk_buff *skb)
 {
 	struct inet_sock *inet = inet_sk(sk);
@@ -89,7 +103,7 @@ static int my_tcp_transmit_skb(struct sock *sk, struct sk_buff *skb, int clone_i
         tp = tcp_sk(sk);
         tcb = TCP_SKB_CB(skb);
 
-	printk("tp->rcv_wnd = %d, inet->inet_sport= %d, inet->inet_dport=%d\n", tp->rcv_wnd, ntohs(inet->inet_sport), ntohs(inet->inet_dport));
+	//printk("tp->rcv_wnd = %d, inet->inet_sport= %d, inet->inet_dport=%d\n", tp->rcv_wnd, ntohs(inet->inet_sport), ntohs(inet->inet_dport));
 	jprobe_return();
 	return 0;
 
@@ -100,7 +114,8 @@ int tcp_probe_init(void *arg)
 	lframe_entry_t *en = (lframe_entry_t *)arg;
 	int ret;
 	ret = install_probe(&en->probe, (kprobe_opcode_t *)my_tcp_transmit_skb, tcp_probe_fun);
-	ret = install_probe(&connect_probe, (kprobe_opcode_t *)my_tcp_finish_connect, tcp_connect_fun);
+	//ret = install_probe(&connect_probe, (kprobe_opcode_t *)my_tcp_finish_connect, tcp_connect_fun);
+	ret = install_probe(&connect_probe, (kprobe_opcode_t *)my_tcp_set_state, tcp_set_fun);
 	return ret;
 }
 
