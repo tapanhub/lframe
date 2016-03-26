@@ -21,6 +21,17 @@ char command_buf[COMMAND_MAX_LEN];
 int filevalue; 
 
 struct jprobe connect_probe;
+typedef struct tcp_entry {
+	struct timeval tv;
+	int seq;
+	int ack;
+	int snd_ssthresh;
+	int snd_cwnd;
+	int rcv_wnd;
+	int srtt_us;
+	int packets_out;
+	
+} tcp_entry_t;
 
 typedef struct tcp_probe_info {
 	int connection_state;
@@ -29,11 +40,16 @@ typedef struct tcp_probe_info {
 	int hsize;
 	int max_idx;
 	int idx;
+	int saddr;
+	int daddr;
+	short int sport;
+	short int dport;
 	struct dentry *dbgfile; 
 	struct debugfs_blob_wrapper dbgblob;
 	char fields[16][16];
-	char data[0];
+	tcp_entry_t entries[0];
 } tcp_info_t;
+
 
 tcp_info_t *tcpinfo = NULL;
 
@@ -69,8 +85,12 @@ static int init_tcp_info(struct sock *sk, int state, tcp_info_t **tcpinfo)
 	(ti->dbgblob).size = (unsigned long)buffersize;
 	
 	(*tcpinfo)->tsize = buffersize;
-	(*tcpinfo)->usize = 40;
+	(*tcpinfo)->usize = sizeof(tcp_entry_t);
 	(*tcpinfo)->max_idx = (buffersize - sizeof(tcp_info_t) ) / (*tcpinfo)->usize;
+	(*tcpinfo)->saddr = (int) inet->inet_saddr;
+	(*tcpinfo)->daddr = (int) inet->inet_daddr;
+	(*tcpinfo)->sport = (short int) inet->inet_sport;
+	(*tcpinfo)->dport = (short int) inet->inet_dport;
 
 	snprintf(filename, sizeof(filename), "tcp_%d.%d.%d.%d.%d_%d.%d.%d.%d.%d", 
 			sip[0], sip[1], sip[2], sip[3], ntohs(inet->inet_sport),
@@ -128,6 +148,34 @@ static void  exit_debugfs(void)
 	}
 } 
 
+void log_tcp_info(struct sock *sk, struct sk_buff *skb, tcp_info_t *tcpinfo)
+{
+	struct inet_sock *inet;
+        struct tcp_sock *tp;
+        struct tcp_skb_cb *tcb;
+	struct timeval tv;
+	tcp_entry_t *te;
+
+	inet = inet_sk(sk);
+	if(tcpinfo->saddr == inet->inet_saddr && tcpinfo->sport == inet->inet_sport
+		&& tcpinfo->daddr == inet->inet_daddr && tcpinfo->dport == inet->inet_dport
+		&& tcpinfo->max_idx < tcpinfo->idx) {
+        	tp = tcp_sk(sk);
+        	tcb = TCP_SKB_CB(skb);
+		te =  &tcpinfo->entries[tcpinfo->idx];
+		do_gettimeofday(&tv);
+
+		te->tv = tv;
+		te->seq = tcb->seq;
+        	te->ack = tp->rcv_nxt;
+        	te->rcv_wnd = tp->rcv_wnd;
+        	te->snd_cwnd = tp->snd_cwnd;
+        	te->snd_ssthresh = tp->snd_ssthresh;
+        	te->srtt_us = tp->srtt_us;
+        	te->packets_out = tp->packets_out;
+		tcpinfo->idx++;
+	}
+}
 void my_tcp_set_state(struct sock *sk, int state)
 {
 	struct inet_sock *inet = inet_sk(sk);
@@ -148,17 +196,9 @@ void my_tcp_set_state(struct sock *sk, int state)
 
 static int my_tcp_transmit_skb(struct sock *sk, struct sk_buff *skb, int clone_it, gfp_t gfp_mask)
 {
-	struct inet_sock *inet;
-        struct tcp_sock *tp;
-        struct tcp_skb_cb *tcb;
-	struct timeval tv;
+		
+	log_tcp_info(sk, skb, tcpinfo);
 
-	inet = inet_sk(sk);
-        tp = tcp_sk(sk);
-        tcb = TCP_SKB_CB(skb);
-	do_gettimeofday(&tv);
-
-	//printk("tp->rcv_wnd = %d, inet->inet_sport= %d, inet->inet_dport=%d\n", tp->rcv_wnd, ntohs(inet->inet_sport), ntohs(inet->inet_dport));
 	jprobe_return();
 	return 0;
 
