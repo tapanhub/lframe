@@ -3,6 +3,7 @@
 #include <linux/sched.h>
 #include <linux/kprobes.h>
 #include <linux/kallsyms.h>
+#include <linux/inet.h>
 
 #include <net/tcp.h>
 #include "lframe.h"
@@ -17,8 +18,17 @@
 unsigned long buffersize = 4096 *1024;
 struct dentry *tcpprobe_ctl; 
 
-char command_buf[COMMAND_MAX_LEN]; 
+char command_buf[COMMAND_MAX_LEN + 4]; 
 int filevalue; 
+
+typedef struct tcp_filter {
+	unsigned int saddr;
+	unsigned int daddr;
+	unsigned short int sport;
+	unsigned short int dport;
+} tcp_filter_t;	
+	
+tcp_filter_t	filter;	
 
 struct jprobe connect_probe;
 typedef struct tcp_entry {
@@ -40,10 +50,11 @@ typedef struct tcp_probe_info {
 	int hsize;
 	int max_idx;
 	int idx;
-	int saddr;
-	int daddr;
-	short int sport;
-	short int dport;
+	unsigned int saddr;
+	unsigned int daddr;
+	unsigned short int sport;
+	unsigned short int dport;
+	int debugfs_created;
 	struct dentry *dbgfile; 
 	struct debugfs_blob_wrapper dbgblob;
 	char fields[16][16];
@@ -53,12 +64,22 @@ typedef struct tcp_probe_info {
 
 tcp_info_t *tcpinfo = NULL;
 
+tcp_info_t * clear_tcp_info(tcp_info_t *tcpinfo)
+{
+	if(tcpinfo->debugfs_created == 1) {
+		debugfs_remove(tcpinfo->dbgfile);
+	}
+	memset(tcpinfo, '\0', sizeof(tcp_info_t));
+	memset(&filter, '\0', sizeof(tcp_filter_t));	
+	return tcpinfo;
+}
 tcp_info_t * alloc_tcp_info(unsigned long size)
 {
 	if(tcpinfo) {
 		return tcpinfo;
 	}
 	tcpinfo = vmalloc(size);
+	memset(tcpinfo, '\0', sizeof(tcp_info_t));
 	return tcpinfo;
 }
 void free_tcp_info(tcp_info_t *tcpinfo)
@@ -77,22 +98,32 @@ static int init_tcp_info(struct sock *sk, int state, tcp_info_t **tcpinfo)
 	char filename[64];
 	
 
+	/* if(ti == NULL || ti->debugfs_created == 1) { */
 	if(ti == NULL) {
 		return -1;
 	}
-	memset(ti, '\0', sizeof(tcp_info_t));
+	if (!(( !filter.sport || filter.sport == inet->inet_sport) &&
+	   ( !filter.dport || filter.dport == inet->inet_dport) &&
+	   ( !filter.saddr || filter.saddr == inet->inet_sport) &&
+	   ( !filter.daddr || filter.daddr == inet->inet_dport))) {
+		return -1;
+		
+	}
+	clear_tcp_info(ti);
 	(ti->dbgblob).data = ti;
 	(ti->dbgblob).size = (unsigned long)buffersize;
 	
-	(*tcpinfo)->tsize = buffersize;
-	(*tcpinfo)->usize = sizeof(tcp_entry_t);
-	(*tcpinfo)->max_idx = (buffersize - sizeof(tcp_info_t) ) / (*tcpinfo)->usize;
-	(*tcpinfo)->saddr = (int) inet->inet_saddr;
-	(*tcpinfo)->daddr = (int) inet->inet_daddr;
-	(*tcpinfo)->sport = (short int) inet->inet_sport;
-	(*tcpinfo)->dport = (short int) inet->inet_dport;
+	ti->tsize = buffersize;
+	ti->usize = sizeof(tcp_entry_t);
+	ti->max_idx = (buffersize - sizeof(tcp_info_t) ) / (*tcpinfo)->usize;
+	ti->hsize = sizeof(tcp_info_t);
+	ti->saddr = (int) inet->inet_saddr;
+	ti->daddr = (int) inet->inet_daddr;
+	ti->sport =  inet->inet_sport;
+	ti->dport =  inet->inet_dport;
+	ti->connection_state = state;
 
-	snprintf(filename, sizeof(filename), "tcp_%d.%d.%d.%d.%d_%d.%d.%d.%d.%d", 
+	snprintf(filename, sizeof(filename), "sock_%d.%d.%d.%d.%d_%d.%d.%d.%d.%d", 
 			sip[0], sip[1], sip[2], sip[3], ntohs(inet->inet_sport),
 			dip[0], dip[1], dip[2], dip[3], ntohs(inet->inet_dport));
 	(ti)->dbgfile = debugfs_create_blob(filename, 0644, basedir, &(ti)->dbgblob);
@@ -100,6 +131,7 @@ static int init_tcp_info(struct sock *sk, int state, tcp_info_t **tcpinfo)
 		printk("unable to create debugfs file %s\n", filename); 
 		return -1; 
 	}
+	(ti)->debugfs_created = 1;
 	return 0;
 
 }
@@ -113,15 +145,111 @@ static void uninit_tcp_info(tcp_info_t **tcpinfo)
 static ssize_t tcp_probe_write(struct file *fp, const char __user *user_buffer, 
                                 size_t count, loff_t *position) 
 { 
+	char *s;
+	long kint;
+	unsigned char *dip = (unsigned char *)&filter.daddr;
+	unsigned char *sip = (unsigned char *)&filter.saddr;
+	int i=0;
+	
+	memset(command_buf, '\0', sizeof(command_buf));
+
         if(count > COMMAND_MAX_LEN ) 
                 return -EINVAL; 
-  
-        //simple_write_to_buffer(command_buf, COMMAND_MAX_LEN, position, user_buffer, count); 
-	if (strncmp(command_buf, "clear", strlen("clear")) == 0) {
-		/*TODO clear logs */
-	} else {
-		printk("echo \"clear\" > command to clear all data  \n");
+	if(*position > COMMAND_MAX_LEN) {
+		return 0;
 	}
+	if(*position + count > COMMAND_MAX_LEN) {
+		count = COMMAND_MAX_LEN - *position;
+	}
+	if(copy_from_user(command_buf, user_buffer, count)) {
+		return -EFAULT;
+	}
+	//*position += count;
+	
+  
+	if (strncmp(command_buf, "clear", strlen("clear")) == 0) {
+		clear_tcp_info(tcpinfo);
+		return count;
+	} 
+	if ((s=strstr(command_buf, "sport="))) {
+		char aport[20] = {0};
+		i = 0;
+		s += strlen("sport=");
+		while(*s && (s - command_buf) < COMMAND_MAX_LEN && (i < sizeof(aport)-2)) {
+			if(*s == ' ' || *s == ',') {
+				break;
+			}
+			aport[i++] = *s++;
+		}
+		aport[i] = '\0';
+
+		if(kstrtol(aport, 0, &kint)) {
+			printk("invalid sport in \"%s\"\n", command_buf);
+			return -EINVAL;
+		}
+		if(kint > 0 && kint < 65535) {
+			filter.sport = htons(kint);
+		} else {
+			printk("invalid sport in \"%s\"\n", command_buf);
+			return -EINVAL;
+		}
+		
+	} 
+	if ((s=strstr(command_buf, "dport="))) {
+		char aport[20] = {0};
+		i = 0;
+		s += strlen("dport=");
+		while(*s && (s - command_buf) < COMMAND_MAX_LEN && (i < sizeof(aport)-2)) {
+			if(*s == ' ' || *s == ',') {
+				break;
+			}
+			aport[i++] = *s++;
+		}
+		aport[i] = '\0';
+
+		if(kstrtol(aport, 0, &kint)) {
+			printk("invalid dport in \"%s\"\n", command_buf);
+			return -EINVAL;
+		}
+		if(kint > 0 && kint < 65535) {
+			filter.dport = htons(kint);
+		} else {
+			printk("invalid dport in \"%s\"\n", command_buf);
+			return -EINVAL;
+		}
+
+	} 
+	if ((s=strstr(command_buf, "saddr="))) {
+		char ipaddr[20] = {0};
+
+		i = 0;
+		s += strlen("saddr=");
+		while(*s && (s - command_buf) < COMMAND_MAX_LEN && (i < sizeof(ipaddr)-2)) {
+			if(*s == ' ' || *s == ',') {
+				break;
+			}
+			ipaddr[i++] = *s++;
+		}
+		ipaddr[i] = '\0';
+		filter.saddr = in_aton(ipaddr);
+	} 
+	if ((s=strstr(command_buf, "daddr="))) {
+		char ipaddr[20] = {0};
+
+		i = 0;
+		s += strlen("daddr=");
+		while(*s && (s - command_buf) < COMMAND_MAX_LEN && (i < sizeof(ipaddr)-2)) {
+			if(*s == ' ' || *s == ',') {
+				break;
+			}
+			ipaddr[i++] = *s++;
+		}
+		ipaddr[i] = '\0';
+		filter.daddr = in_aton(ipaddr);
+	} 
+	printk("new filter installed: saddr=%d.%d.%d.%d sport=%d daddr=%d.%d.%d.%d dport=%d\n",
+		sip[0], sip[1], sip[2], sip[3], ntohs(filter.sport),
+		dip[0], dip[1], dip[2], dip[3], ntohs(filter.dport));
 	return count;
 } 
  
@@ -157,9 +285,10 @@ void log_tcp_info(struct sock *sk, struct sk_buff *skb, tcp_info_t *tcpinfo)
 	tcp_entry_t *te;
 
 	inet = inet_sk(sk);
-	if(tcpinfo->saddr == inet->inet_saddr && tcpinfo->sport == inet->inet_sport
-		&& tcpinfo->daddr == inet->inet_daddr && tcpinfo->dport == inet->inet_dport
-		&& tcpinfo->max_idx < tcpinfo->idx) {
+
+	if( (tcpinfo->saddr == inet->inet_saddr) && (tcpinfo->sport == inet->inet_sport)
+		&& (tcpinfo->daddr == inet->inet_daddr) && (tcpinfo->dport == inet->inet_dport)
+		&& (tcpinfo->max_idx > tcpinfo->idx)) {
         	tp = tcp_sk(sk);
         	tcb = TCP_SKB_CB(skb);
 		te =  &tcpinfo->entries[tcpinfo->idx];
