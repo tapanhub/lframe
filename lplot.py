@@ -1,5 +1,6 @@
 #!/bin/python
 from struct import *
+import socket
 
 """
 typedef struct tcp_probe_info {
@@ -33,10 +34,31 @@ typedef struct tcp_entry {
 } tcp_entry_t;
 
 """
+def int_2_ip(ip, end=0):
+	h="%08x" % ip
+	hexdata=h.decode("hex")
+	out=map(ord, hexdata)
+	if(end == 1):
+		out= out[::-1]
+	return out
 
+header=("conn_state", "tsize", "usize", "hsize", "max_idx", "idx", "saddr", "daddr", "sport", "dport") 
 f=open("out")
-header=f.read(320)
-hdr=unpack('iiiiiiIIHHi', header[:40])
+filebuf=f.read();
+f.close()
+
+hdr=unpack('iiiiiiIIHHi', filebuf[:40])
 print hdr
+d=dict(zip(header, hdr))
+sip=int_2_ip(d['saddr'], 1)
+dip=int_2_ip(d['daddr'], 1)
+sp=socket.ntohs(d['sport'])
+dp=socket.ntohs(d['dport'])
+count=d['idx']
+
+print sip, dip
+
+
+hdr=unpack('iiiiiiIIHHi', filebuf[:40])
 
 
