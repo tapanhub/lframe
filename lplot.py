@@ -1,6 +1,8 @@
 #!/bin/python
+from __future__ import division
 from struct import *
 import socket, os, sys, getopt
+import matplotlib.pyplot as plt
 
 """
 typedef struct tcp_probe_info {
@@ -58,10 +60,28 @@ def get_samples(data, d):
 			udata=unpack('QQIIIIIIIi', data[(i*d['usize']):((i+1)*d['usize'])])
 			uarray.append(udata)
 			ud=dict(zip(uhdr, udata))
-			print ud
 		else:
 			break
 	return uarray
+def convert_time(item):
+	basetime=item[0] + (item[1]/1000000)
+	basevalue=[basetime]
+	basevalue.extend(list(item[2:]))
+	return tuple(basevalue);
+	
+def rebase_items(uarray):
+	rebase_uarray=[]
+	i=0
+	item=uarray[0]
+	basevalue=convert_time(item)
+	for item in uarray[1:]:
+		value=convert_time(item)
+		value=list(value)
+		value[0]=value[0]-basevalue[0]
+		value[1]=value[1]-basevalue[1]
+		value[2]=value[2]-basevalue[2]
+		rebase_uarray.append((value))
+	return rebase_uarray
 
 
 def main(argv):
@@ -97,6 +117,16 @@ def main(argv):
 	count=d['idx']
 	print sip, dip, sp, dp, count
 	uarray=get_samples(filebuf[d['hsize']:], d)
+	rebase_uarray=rebase_items(uarray)
+
+	plt.plot([x[0] for x in rebase_uarray], [x[1] for x in rebase_uarray])
+	plt.xlabel('time (s)')
+	plt.ylabel('bytes transmitted from server')
+	plt.title('TCP time vs server data')
+	plt.grid(True)
+	plt.savefig(inputopts['inputfile']+".png")
+	plt.show()
+	
 if __name__ == '__main__':
 	try:
 		main(sys.argv)

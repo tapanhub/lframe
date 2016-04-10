@@ -300,7 +300,8 @@ void log_tcp_info(struct sock *sk, struct sk_buff *skb, tcp_info_t *tcpinfo)
         	te->rcv_wnd = tp->rcv_wnd;
         	te->snd_cwnd = tp->snd_cwnd;
         	te->snd_ssthresh = tp->snd_ssthresh;
-        	te->srtt_us = tp->srtt_us;
+        	//te->srtt_us = tp->srtt_us;
+        	te->srtt_us = 0;
         	te->packets_out = tp->packets_out;
 		tcpinfo->idx++;
 	}
@@ -332,7 +333,6 @@ static int my_tcp_transmit_skb(struct sock *sk, struct sk_buff *skb, int clone_i
 	return 0;
 
 }
-
 int tcp_probe_init(void *arg)
 {
 	lframe_entry_t *en = (lframe_entry_t *)arg;
