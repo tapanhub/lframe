@@ -1,6 +1,10 @@
 #ifndef _LFRAME_H
 #define _LFRAME_H
+#include <linux/kernel.h>
+#include <linux/module.h>
+#include <linux/sched.h>
 #include <linux/kprobes.h>
+#include <linux/kallsyms.h>
 #include <linux/debugfs.h> 
 #include <linux/fs.h>   
 #include <linux/time.h>
@@ -19,6 +23,13 @@ typedef struct lframe_entry {
 	int  idx;
 } lframe_entry_t;
 
+struct lframe_config {
+	int sock_io_proto;
+	int dport;
+	int serverip;
+	int reconfig;
+};
+extern struct lframe_config lfconfig;
 #define register_lframe(name, initfun, exitfun)		\
     static lframe_entry_t __lframe_ ## initfun ## exitfun	\
     __attribute__((__section__("LFRAME"))) __used = {			\

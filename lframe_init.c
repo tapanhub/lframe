@@ -1,10 +1,3 @@
-#include <linux/kernel.h>
-#include <linux/module.h>
-#include <linux/sched.h>
-#include <linux/kprobes.h>
-#include <linux/kallsyms.h>
-#include <linux/debugfs.h> 
-#include <linux/fs.h>   
 #include "lframe.h"
 
 extern lframe_entry_t __start_LFRAME;
@@ -23,10 +16,20 @@ static void exit_debugfs(void)
 	if(basedir)
 		debugfs_remove_recursive(basedir); 
 } 
+int init_lframeio(void)
+{
+
+}
+int exit_lframeio(void)
+{
+
+}
+
 int init_module(void)
 {
 	lframe_entry_t  *entry = &__start_LFRAME;
 	init_debugfs();
+	init_lframeio();
 
     	for ( ; entry < &__stop_LFRAME; ++entry) {
 		printk("initializing %s: \n", entry->modname);
@@ -43,6 +46,7 @@ void cleanup_module(void)
 		printk("uninitializing %s: \n", entry->modname);
 		entry->exit(entry);
     	}
+	exit_lframeio();
 	exit_debugfs();
 }
 
