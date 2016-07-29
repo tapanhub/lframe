@@ -1,0 +1,112 @@
+#include "lframe.h"
+
+#define  COMMAND_MAX_LEN 128
+
+struct lframe_config lfconfig;
+struct dentry *lframe_ctl=NULL; 
+
+static int lframectl_show(struct seq_file *s, void *unused)
+{
+	seq_printf(s, "%s\n", __func__);
+        return 0;
+}
+
+static int lframectl_open(struct inode *inode, struct file *file)
+{
+        return single_open(file, lframe_show, NULL);
+}
+
+static ssize_t lframe_ctl_write(struct file *fp, const char __user *user_buffer, 
+                                size_t count, loff_t *position) 
+{ 
+	char *s;
+	long kint;
+	unsigned char *serverip = (unsigned char *)&lfconfig.serverip;
+	char command_buf[COMMAND_MAX_LEN];
+	int i=0;
+	
+	memset(command_buf, '\0', sizeof(command_buf));
+
+        if(count > COMMAND_MAX_LEN ) 
+                return -EINVAL; 
+	if(*position > COMMAND_MAX_LEN) {
+		return 0;
+	}
+	if(*position + count > COMMAND_MAX_LEN) {
+		count = COMMAND_MAX_LEN - *position;
+	}
+	if(copy_from_user(command_buf, user_buffer, count)) {
+		return -EFAULT;
+	}
+	
+  
+	if ((s=strstr(command_buf, ":"))) {
+		char dport[20] = {0};
+		i = 0;
+		s += 1; 	/* skip ':' char */
+		while(*s && (s - command_buf) < COMMAND_MAX_LEN && (i < sizeof(dport)-2)) {
+			if(*s == ' ' || *s == ',') {
+				break;
+			}
+			aport[i++] = *s++;
+		}
+		aport[i] = '\0';
+
+		if(kstrtol(dport, 0, &kint)) {
+			printk("invalid sport in \"%s\"\n", command_buf);
+			return -EINVAL;
+		}
+		if(kint > 0 && kint < 65535) {
+			if(lfconfig.dport != kint) {
+				lfconfig.dport = kint;
+				lfconfig.reconfig = 1;
+			}
+		} else {
+			printk("invalid sport in \"%s\"\n", command_buf);
+			return -EINVAL;
+		}
+		
+	} 
+	if ((s=strstr(command_buf, ":"))) {
+		char ipaddr[20] = {0};
+		int serverip;
+		i = 0;
+		s = command_buf;	/* points to begining of buf */
+
+		while(*s && (s - command_buf) < COMMAND_MAX_LEN && (i < sizeof(ipaddr)-2)) {
+			if(*s == ' ' || *s == ','||*s == ':') {
+				break;
+			}
+			ipaddr[i++] = *s++;
+		}
+		ipaddr[i] = '\0';
+		
+		serverip = in_aton(ipaddr);
+		if(serverip != lfconfig.serverip) {
+			lfconfig.serverip = serverip;
+			lfconfig.reconfig = 1;
+		}
+	} 
+	printk("new config installed: serverip =%d.%d.%d.%d server port=%d \n",
+		sip[0], sip[1], sip[2], sip[3], lfconfig.dport);
+	return count;
+} 
+static const struct file_operations lframe_ctl_fops = { 
+	.open           = intc_regs_open,
+        .read           = seq_read,
+        .llseek         = seq_lseek,
+        .release        = single_release,
+        .write 		= lframe_ctl_write, 
+}; 
+int init_lframectl()
+{
+	if(basedir)
+		lframe_ctl = debugfs_create_file("lframe_ctl", 0644, basedir, &filevalue, &lframe_ctl_fops);
+
+}
+
+int exit_lframectl()
+{
+
+}
+
