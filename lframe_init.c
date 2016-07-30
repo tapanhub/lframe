@@ -29,6 +29,7 @@ int init_module(void)
 {
 	lframe_entry_t  *entry = &__start_LFRAME;
 	init_debugfs();
+	init_lframectl();
 	init_lframeio();
 
     	for ( ; entry < &__stop_LFRAME; ++entry) {
@@ -47,6 +48,7 @@ void cleanup_module(void)
 		entry->exit(entry);
     	}
 	exit_lframeio();
+	exit_lframectl();
 	exit_debugfs();
 }
 

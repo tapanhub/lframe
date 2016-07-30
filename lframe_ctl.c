@@ -1,19 +1,24 @@
+#include <asm/uaccess.h>
+#include <linux/inet.h>
 #include "lframe.h"
 
 #define  COMMAND_MAX_LEN 128
 
 struct lframe_config lfconfig;
 struct dentry *lframe_ctl=NULL; 
+int fv;
 
 static int lframectl_show(struct seq_file *s, void *unused)
 {
-	seq_printf(s, "%s\n", __func__);
+	int serverip = lfconfig.serverip;
+	unsigned char *sip = (unsigned char *)&serverip;
+	seq_printf(s, "serverip:%d.%d.%d.%d port:%d\n", sip[0], sip[1], sip[2], sip[3], lfconfig.dport);
         return 0;
 }
 
 static int lframectl_open(struct inode *inode, struct file *file)
 {
-        return single_open(file, lframe_show, NULL);
+        return single_open(file, lframectl_show, NULL);
 }
 
 static ssize_t lframe_ctl_write(struct file *fp, const char __user *user_buffer, 
@@ -21,7 +26,7 @@ static ssize_t lframe_ctl_write(struct file *fp, const char __user *user_buffer,
 { 
 	char *s;
 	long kint;
-	unsigned char *serverip = (unsigned char *)&lfconfig.serverip;
+	unsigned char *sip = (unsigned char *)&lfconfig.serverip;
 	char command_buf[COMMAND_MAX_LEN];
 	int i=0;
 	
@@ -48,9 +53,9 @@ static ssize_t lframe_ctl_write(struct file *fp, const char __user *user_buffer,
 			if(*s == ' ' || *s == ',') {
 				break;
 			}
-			aport[i++] = *s++;
+			dport[i++] = *s++;
 		}
-		aport[i] = '\0';
+		dport[i] = '\0';
 
 		if(kstrtol(dport, 0, &kint)) {
 			printk("invalid sport in \"%s\"\n", command_buf);
@@ -92,21 +97,24 @@ static ssize_t lframe_ctl_write(struct file *fp, const char __user *user_buffer,
 	return count;
 } 
 static const struct file_operations lframe_ctl_fops = { 
-	.open           = intc_regs_open,
+	.open           = lframectl_open,
         .read           = seq_read,
         .llseek         = seq_lseek,
         .release        = single_release,
         .write 		= lframe_ctl_write, 
 }; 
-int init_lframectl()
+int init_lframectl(void)
 {
 	if(basedir)
-		lframe_ctl = debugfs_create_file("lframe_ctl", 0644, basedir, &filevalue, &lframe_ctl_fops);
-
+		lframe_ctl = debugfs_create_file("lframe_ctl", 0644, basedir, &fv, &lframe_ctl_fops);
+	return 0;
 }
 
-int exit_lframectl()
+int exit_lframectl(void)
 {
-
+	if (!lframe_ctl) { 
+		debugfs_remove(lframe_ctl);
+	}
+	return 0;
 }
 

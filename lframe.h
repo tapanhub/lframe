@@ -62,4 +62,6 @@ static inline void uninstall_probe(struct jprobe *probe, char *symbol)
 	printk("jprobe %s unregistered\n", symbol?:"");
 }
 extern struct dentry *basedir; 
+int init_lframectl(void);
+int exit_lframectl(void);
 #endif
