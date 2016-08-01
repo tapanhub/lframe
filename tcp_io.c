@@ -21,8 +21,8 @@
 #include <linux/skbuff.h>
 #include "lframe.h"
 
-#define DEFAULT_PORT 2325
-#define DESTADDR 0xc0a80a01
+#define SERVER_PORT 55555
+#define SERVER_ADDR 0x7f000001
 #define MODULE_NAME "tcp_io"
 
 int tcpio_thread(void);
@@ -46,7 +46,7 @@ int create_socket(void)
 	struct socket *socket;
 	struct sockaddr_in sin;
 
-	if(tcpio_info->connected == 1) {
+	if(tcpio_info->connected == 1 && lfconfig.reconfig != 1) {
 		return 0;
 	}
 	if (tcpio_info->client_socket != NULL) {
@@ -66,9 +66,18 @@ int create_socket(void)
 	socket = tcpio_info->client_socket;
 	tcpio_info->client_socket->sk->sk_reuse = 1;
 
-	sin.sin_addr.s_addr = htonl(DESTADDR);
-	sin.sin_family = AF_INET;
-	sin.sin_port = htons(DEFAULT_PORT);
+	if(lfconfig.serverip != 0) {
+		sin.sin_addr.s_addr = lfconfig.serverip;
+		sin.sin_family = AF_INET;
+		if(lfconfig.dport)
+			sin.sin_port = htons(lfconfig.dport);
+		else
+			sin.sin_port = htons(SERVER_PORT);
+	} else {
+		sin.sin_addr.s_addr = htonl(SERVER_ADDR);
+		sin.sin_family = AF_INET;
+		sin.sin_port = htons(SERVER_PORT);
+	}
 	error = socket->ops->connect(socket, (struct sockaddr *)&sin, sizeof(sin), 0);
 	printk("connect returned %d\n", error);
 	if (error < 0) {
@@ -103,12 +112,11 @@ int tcpio_send(char *buf, int len)
 			tcpio_info->connected = 0;
 		}
 	}
-		
+	return ret;
 }
 
 int tcpio_thread()
 {
-	int error;
 	DECLARE_WAIT_QUEUE_HEAD(wq);
 
 	{
@@ -141,7 +149,7 @@ int tcpio_start()
 	return 1;
 }
 
-int init_module()
+int init_tcpio()
 {
 	printk("tcpio module init\n");
 	tcpio_info = kmalloc(sizeof(struct tcpio_info), GFP_KERNEL);
@@ -149,7 +157,7 @@ int init_module()
 	return 0;
 }
 
-void cleanup_module()
+void cleanup_tcpio()
 {
 	int err;
 

@@ -30,6 +30,8 @@ struct lframe_config {
 	int reconfig;
 };
 extern struct lframe_config lfconfig;
+extern void cleanup_tcpio(void);
+extern int init_tcpio(void);
 #define register_lframe(name, initfun, exitfun)		\
     static lframe_entry_t __lframe_ ## initfun ## exitfun	\
     __attribute__((__section__("LFRAME"))) __used = {			\

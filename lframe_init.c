@@ -18,11 +18,12 @@ static void exit_debugfs(void)
 } 
 int init_lframeio(void)
 {
+	return init_tcpio();
 
 }
-int exit_lframeio(void)
+void exit_lframeio(void)
 {
-
+	cleanup_tcpio();
 }
 
 int init_module(void)
