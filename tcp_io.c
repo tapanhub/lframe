@@ -19,6 +19,7 @@
 #include <net/inet_connection_sock.h>
 #include <net/request_sock.h>
 #include <linux/skbuff.h>
+#include <linux/workqueue.h>
 #include "lframe.h"
 
 #define SERVER_PORT 55555
@@ -37,6 +38,7 @@ struct tcpio_info {
 };
 
 struct tcpio_info *tcpio_info;
+static struct workqueue_struct *tcpio_wq;
 
 
 int create_socket(void)
@@ -115,7 +117,7 @@ int tcpio_send(char *buf, int len)
 	return ret;
 }
 
-int tcpio_thread()
+int tcpio_wq_function()
 {
 	DECLARE_WAIT_QUEUE_HEAD(wq);
 
@@ -125,29 +127,35 @@ int tcpio_thread()
 		allow_signal(SIGKILL | SIGSTOP);
 	}
 	printk("thread started...\n");
+	return 0;
+}
+/* http://www.ibm.com/developerworks/linux/library/l-tasklets/index.html */
+int tcpio_start()
+{
+	int ret;
+	tcpio_info->running = 1;
+	tcpio_wq = create_workqueue("tcpio_queue");
+	if (tcpio_wq) {
+		/* Queue some work (item 1) */
+		work = (my_work_t *)kmalloc(sizeof(my_work_t), GFP_KERNEL);
+		if (work) {
+			INIT_WORK( (struct work_struct *)work, tcpio_wq_function );
+			work->x = 1;
+			ret = queue_work( tcpio_wq, (struct work_struct *)work );
+		}
 
-	
-#if 0
-	while (1) {
-		wait_event_timeout(wq, 0, 3 * HZ);
+		/* Queue some additional work (item 2) */
+		work2 = (my_work_t *)kmalloc(sizeof(my_work_t), GFP_KERNEL);
+		if (work2) {
+			INIT_WORK( (struct work_struct *)work2, tcpio_wq_function );
+			work2->x = 2;
+			ret = queue_work( tcpio_wq, (struct work_struct *)work2 );
+		}
 
-		if (signal_pending(current))
-			break;
 	}
-#endif
 	return 0;
 }
 
-int tcpio_start()
-{
-	tcpio_info->running = 1;
-
-	/* kernel thread initialization */
-	printk("starting tcp thread..\n");
-	tcpio_info->thread = kthread_run((void *)tcpio_thread, NULL, MODULE_NAME);
-
-	return 1;
-}
 
 int init_tcpio()
 {
@@ -162,12 +170,11 @@ void cleanup_tcpio()
 	int err;
 
 	printk("module cleanup\n");
+	flush_workqueue(tcpio_wq);
+	destroy_workqueue(tcpio_wq);
 	if (tcpio_info->thread == NULL)
 		printk(KERN_INFO MODULE_NAME ": no kernel thread to kill\n");
 	else {
-		printk("stop the thead\n");
-		err = kthread_stop(tcpio_info->thread);
-
 		/* free allocated resources before exit */
 		if (tcpio_info->client_socket != NULL) {
 			printk("release the client_socket\n");
