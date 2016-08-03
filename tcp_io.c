@@ -31,7 +31,6 @@ int tcpio_start(void);
 
 struct tcpio_info {
 	int connected;
-	int running;
 	struct socket *client_socket;
 	struct task_struct *thread;
 	struct task_struct *accept_worker;
@@ -39,6 +38,20 @@ struct tcpio_info {
 
 struct tcpio_info *tcpio_info;
 static struct workqueue_struct *tcpio_wq;
+
+typedef struct {
+	struct work_struct work;
+	struct list_head list;
+} tcpio_work_t;
+
+typedef struct {
+	struct list_head list;
+	void  *buffer;
+	int  len;
+} tcpio_msg_t;
+
+tcpio_work_t tcpio_work;
+
 
 
 int create_socket(void)
@@ -92,66 +105,61 @@ int create_socket(void)
 	return 0;
 
 }
-
+/*enqueue incoming buffer & schedule work */
 int tcpio_send(char *buf, int len)
 {
+	int ret = -1;
+	tcpio_msg_t *tmsg;
+	tmsg = kmalloc(sizeof(tcpio_msg_t), GFP_ATOMIC);
+	if(tmsg) {
+		INIT_LIST_HEAD(&tmsg->list);	
+		tmsg->buffer = buf;
+		tmsg->len = len;
+		list_add(&tmsg->list, &tcpio_work.list);
+		ret = queue_work( tcpio_wq, (struct work_struct *)tcpio_work);
+	}
+	return ret;
+}
+/* process list of buffers */
+int tcpio_wq_function()
+{
 	struct msghdr msg;
-        struct kvec iv = { buf, len };
 	int ret = 0;
 	struct socket *sock = tcpio_info->client_socket;
+	tcpio_msg_t *node, *tempnode;
 
 	if(tcpio_info->connected == 0) {
 		create_socket();
 	}
-	if(tcpio_info->connected == 1) {
-		if (sock == NULL) {
-			printk("ksend the cscok is NULL\n");
-			return -1;
+	list_for_each_entry_safe(node, tempnode, &tcpio_work.list, list) {
+		if(tcpio_info->connected == 1) {
+        		struct kvec iv = {node.buffer, node.len};
+			if (sock == NULL) {
+				printk("sock is NULL\n");
+				return -1;
+			}
+			memset(&msg, 0, sizeof(msg));
+			ret = kernel_sendmsg(sock, &msg, &iv, 1, len);
+			if (ret < 0) {
+				tcpio_info->connected = 0;
+			}
 		}
-		memset(&msg, 0, sizeof(msg));
-		ret = kernel_sendmsg(sock, &msg, &iv, 1, len);
-		if (ret < 0) {
-			tcpio_info->connected = 0;
-		}
+
+    		list_del(&node->list);
+    		kfree(node);
 	}
 	return ret;
 }
-
-int tcpio_wq_function()
-{
-	DECLARE_WAIT_QUEUE_HEAD(wq);
-
-	{
-		tcpio_info->running = 1;
-		current->flags |= PF_NOFREEZE;
-		allow_signal(SIGKILL | SIGSTOP);
-	}
-	printk("thread started...\n");
-	return 0;
-}
 /* http://www.ibm.com/developerworks/linux/library/l-tasklets/index.html */
+/* http://www.roman10.net/2011/07/28/linux-kernel-programminglinked-list/ */
 int tcpio_start()
 {
 	int ret;
-	tcpio_info->running = 1;
 	tcpio_wq = create_workqueue("tcpio_queue");
 	if (tcpio_wq) {
 		/* Queue some work (item 1) */
-		work = (my_work_t *)kmalloc(sizeof(my_work_t), GFP_KERNEL);
-		if (work) {
-			INIT_WORK( (struct work_struct *)work, tcpio_wq_function );
-			work->x = 1;
-			ret = queue_work( tcpio_wq, (struct work_struct *)work );
-		}
-
-		/* Queue some additional work (item 2) */
-		work2 = (my_work_t *)kmalloc(sizeof(my_work_t), GFP_KERNEL);
-		if (work2) {
-			INIT_WORK( (struct work_struct *)work2, tcpio_wq_function );
-			work2->x = 2;
-			ret = queue_work( tcpio_wq, (struct work_struct *)work2 );
-		}
-
+		INIT_LIST_HEAD(&tcpio_work.list);
+		INIT_WORK( (struct work_struct *)tcpio_work, tcpio_wq_function );
 	}
 	return 0;
 }
