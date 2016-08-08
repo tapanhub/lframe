@@ -32,7 +32,6 @@ int tcpio_start(void);
 struct tcpio_info {
 	int connected;
 	struct socket *client_socket;
-	struct task_struct *thread;
 	struct task_struct *accept_worker;
 };
 
@@ -116,12 +115,12 @@ int tcpio_send(char *buf, int len)
 		tmsg->buffer = buf;
 		tmsg->len = len;
 		list_add(&tmsg->list, &tcpio_work.list);
-		ret = queue_work( tcpio_wq, (struct work_struct *)tcpio_work);
+		ret = queue_work( tcpio_wq, (struct work_struct *)&tcpio_work);
 	}
 	return ret;
 }
 /* process list of buffers */
-int tcpio_wq_function()
+int tcpio_wq_function(void)
 {
 	struct msghdr msg;
 	int ret = 0;
@@ -133,13 +132,13 @@ int tcpio_wq_function()
 	}
 	list_for_each_entry_safe(node, tempnode, &tcpio_work.list, list) {
 		if(tcpio_info->connected == 1) {
-        		struct kvec iv = {node.buffer, node.len};
+        		struct kvec iv = {node->buffer, node->len};
 			if (sock == NULL) {
 				printk("sock is NULL\n");
 				return -1;
 			}
 			memset(&msg, 0, sizeof(msg));
-			ret = kernel_sendmsg(sock, &msg, &iv, 1, len);
+			ret = kernel_sendmsg(sock, &msg, &iv, 1, node->len);
 			if (ret < 0) {
 				tcpio_info->connected = 0;
 			}
@@ -154,45 +153,45 @@ int tcpio_wq_function()
 /* http://www.roman10.net/2011/07/28/linux-kernel-programminglinked-list/ */
 int tcpio_start()
 {
-	int ret;
 	tcpio_wq = create_workqueue("tcpio_queue");
 	if (tcpio_wq) {
 		/* Queue some work (item 1) */
 		INIT_LIST_HEAD(&tcpio_work.list);
-		INIT_WORK( (struct work_struct *)tcpio_work, tcpio_wq_function );
+		INIT_WORK( (struct work_struct *)&tcpio_work, tcpio_wq_function );
 	}
 	return 0;
 }
-
+int tcpio_test(void)
+{
+	char buf[256];
+	memset(buf, '3', sizeof buf);
+	tcpio_send(buf, sizeof buf);
+	return 0;
+}
 
 int init_tcpio()
 {
 	printk("tcpio module init\n");
 	tcpio_info = kmalloc(sizeof(struct tcpio_info), GFP_KERNEL);
 	tcpio_start();
+	tcpio_test();
 	return 0;
 }
 
 void cleanup_tcpio()
 {
-	int err;
-
 	printk("module cleanup\n");
 	flush_workqueue(tcpio_wq);
 	destroy_workqueue(tcpio_wq);
-	if (tcpio_info->thread == NULL)
-		printk(KERN_INFO MODULE_NAME ": no kernel thread to kill\n");
-	else {
-		/* free allocated resources before exit */
-		if (tcpio_info->client_socket != NULL) {
-			printk("release the client_socket\n");
-			sock_release(tcpio_info->client_socket);
-			tcpio_info->client_socket = NULL;
-		}
-
-		kfree(tcpio_info);
-		tcpio_info = NULL;
-
-		printk(KERN_INFO MODULE_NAME ": module unloaded\n");
+	/* free allocated resources before exit */
+	if (tcpio_info->client_socket != NULL) {
+		printk("release the client_socket\n");
+		sock_release(tcpio_info->client_socket);
+		tcpio_info->client_socket = NULL;
 	}
+
+	kfree(tcpio_info);
+	tcpio_info = NULL;
+
+	printk(KERN_INFO MODULE_NAME ": module unloaded\n");
 }
