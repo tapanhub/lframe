@@ -23,7 +23,8 @@
 #include "lframe.h"
 
 #define SERVER_PORT 55555
-#define SERVER_ADDR 0x7f000001
+//#define SERVER_ADDR 0x7f000001
+#define SERVER_ADDR 0xc0a80a01
 #define MODULE_NAME "tcp_io"
 
 int tcpio_thread(void);
@@ -116,11 +117,12 @@ int tcpio_send(char *buf, int len)
 		tmsg->len = len;
 		list_add(&tmsg->list, &tcpio_work.list);
 		ret = queue_work( tcpio_wq, (struct work_struct *)&tcpio_work);
+		printk("task queued ret=%d\n", ret);
 	}
 	return ret;
 }
 /* process list of buffers */
-int tcpio_wq_function(void)
+void tcpio_wq_function(struct work_struct *work)
 {
 	struct msghdr msg;
 	int ret = 0;
@@ -129,16 +131,18 @@ int tcpio_wq_function(void)
 
 	if(tcpio_info->connected == 0) {
 		create_socket();
+		sock = tcpio_info->client_socket;
 	}
 	list_for_each_entry_safe(node, tempnode, &tcpio_work.list, list) {
 		if(tcpio_info->connected == 1) {
         		struct kvec iv = {node->buffer, node->len};
 			if (sock == NULL) {
 				printk("sock is NULL\n");
-				return -1;
+				return ;
 			}
 			memset(&msg, 0, sizeof(msg));
 			ret = kernel_sendmsg(sock, &msg, &iv, 1, node->len);
+			printk("kernel_sendmsg returned %d\n", ret);
 			if (ret < 0) {
 				tcpio_info->connected = 0;
 			}
@@ -147,7 +151,6 @@ int tcpio_wq_function(void)
     		list_del(&node->list);
     		kfree(node);
 	}
-	return ret;
 }
 /* http://www.ibm.com/developerworks/linux/library/l-tasklets/index.html */
 /* http://www.roman10.net/2011/07/28/linux-kernel-programminglinked-list/ */
@@ -161,9 +164,9 @@ int tcpio_start()
 	}
 	return 0;
 }
+char buf[256];
 int tcpio_test(void)
 {
-	char buf[256];
 	memset(buf, '3', sizeof buf);
 	tcpio_send(buf, sizeof buf);
 	return 0;
@@ -173,6 +176,10 @@ int init_tcpio()
 {
 	printk("tcpio module init\n");
 	tcpio_info = kmalloc(sizeof(struct tcpio_info), GFP_KERNEL);
+	if(tcpio_info == NULL) {
+		return -1;
+	}
+	memset(tcpio_info, 0, sizeof(struct tcpio_info));
 	tcpio_start();
 	tcpio_test();
 	return 0;
