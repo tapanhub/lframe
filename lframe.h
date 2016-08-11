@@ -29,6 +29,16 @@ struct lframe_config {
 	int serverip;
 	int reconfig;
 };
+
+typedef struct {
+	struct 	list_head list;
+	int  	len;
+	char	buffer[];
+} tcpio_msg_t;
+
+extern void *alloc_tcpio_mem(int size);
+extern void free_tcpio_mem(void *buf);
+
 extern struct lframe_config lfconfig;
 extern void cleanup_tcpio(void);
 extern int init_tcpio(void);

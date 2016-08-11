@@ -7,7 +7,6 @@
 #include <linux/netdevice.h>
 #include <linux/ip.h>
 #include <linux/in.h>
-
 #include <linux/delay.h>
 #include <linux/un.h>
 #include <linux/unistd.h>
@@ -25,38 +24,47 @@
 #define SERVER_PORT 55555
 //#define SERVER_ADDR 0x7f000001
 #define SERVER_ADDR 0xc0a80a01
-#define MODULE_NAME "tcp_io"
 
 int tcpio_thread(void);
 int tcpio_start(void);
 
 struct tcpio_info {
-	int connected;
-	struct socket *client_socket;
-	struct task_struct *accept_worker;
+	int	connected;
+	struct	socket *client_socket;
+	struct	task_struct *accept_worker;
 };
 
 struct tcpio_info *tcpio_info;
-static struct workqueue_struct *tcpio_wq;
+static struct 	workqueue_struct *tcpio_wq;
 
 typedef struct {
-	struct work_struct work;
-	struct list_head list;
+	struct	work_struct work;
+	struct	list_head list;
 } tcpio_work_t;
 
-typedef struct {
-	struct list_head list;
-	void  *buffer;
-	int  len;
-} tcpio_msg_t;
 
 tcpio_work_t tcpio_work;
 
+void *alloc_tcpio_mem(int size)
+{
+	tcpio_msg_t *tmsg;
+	tmsg = kmalloc(sizeof(tcpio_msg_t) + size, GFP_ATOMIC);
+	if(tmsg) {
+		tmsg->len=size;
+	} else {
+		printk("Unable to allocate %d bytes with flag GFP_ATOMIC\n", size);
+	}
+	return tmsg;
+}
+
+void free_tcpio_mem(void *buf)
+{
+	kfree(buf);
+}
 
 
 int create_socket(void)
 {
-
 	int error;
 	struct socket *socket;
 	struct sockaddr_in sin;
@@ -106,18 +114,13 @@ int create_socket(void)
 
 }
 /*enqueue incoming buffer & schedule work */
-int tcpio_send(char *buf, int len)
+int tcpio_send(tcpio_msg_t *tmsg)
 {
 	int ret = -1;
-	tcpio_msg_t *tmsg;
-	tmsg = kmalloc(sizeof(tcpio_msg_t), GFP_ATOMIC);
 	if(tmsg) {
 		INIT_LIST_HEAD(&tmsg->list);	
-		tmsg->buffer = buf;
-		tmsg->len = len;
 		list_add(&tmsg->list, &tcpio_work.list);
 		ret = queue_work( tcpio_wq, (struct work_struct *)&tcpio_work);
-		printk("task queued ret=%d\n", ret);
 	}
 	return ret;
 }
@@ -142,14 +145,14 @@ void tcpio_wq_function(struct work_struct *work)
 			}
 			memset(&msg, 0, sizeof(msg));
 			ret = kernel_sendmsg(sock, &msg, &iv, 1, node->len);
-			printk("kernel_sendmsg returned %d\n", ret);
 			if (ret < 0) {
+				printk("kernel_sendmsg returned %d\n", ret);
 				tcpio_info->connected = 0;
 			}
 		}
 
     		list_del(&node->list);
-    		kfree(node);
+		free_tcpio_mem(node);
 	}
 }
 /* http://www.ibm.com/developerworks/linux/library/l-tasklets/index.html */
@@ -161,33 +164,35 @@ int tcpio_start()
 		/* Queue some work (item 1) */
 		INIT_LIST_HEAD(&tcpio_work.list);
 		INIT_WORK( (struct work_struct *)&tcpio_work, tcpio_wq_function );
+	} else {
+		printk("Unable to create workqueue \"tcpio_queue\"\n");
 	}
 	return 0;
 }
-char buf[256];
+
 int tcpio_test(void)
 {
-	memset(buf, '3', sizeof buf);
-	tcpio_send(buf, sizeof buf);
+	tcpio_msg_t *tmsg;
+	tmsg = alloc_tcpio_mem(256);
+	memset(tmsg->buffer, 'a', 256);
+	tcpio_send(tmsg);
 	return 0;
 }
 
 int init_tcpio()
 {
-	printk("tcpio module init\n");
 	tcpio_info = kmalloc(sizeof(struct tcpio_info), GFP_KERNEL);
 	if(tcpio_info == NULL) {
+		printk("Unable to allocate tcpio_info\n");
 		return -1;
 	}
 	memset(tcpio_info, 0, sizeof(struct tcpio_info));
 	tcpio_start();
-	tcpio_test();
 	return 0;
 }
 
 void cleanup_tcpio()
 {
-	printk("module cleanup\n");
 	flush_workqueue(tcpio_wq);
 	destroy_workqueue(tcpio_wq);
 	/* free allocated resources before exit */
@@ -199,6 +204,4 @@ void cleanup_tcpio()
 
 	kfree(tcpio_info);
 	tcpio_info = NULL;
-
-	printk(KERN_INFO MODULE_NAME ": module unloaded\n");
 }
