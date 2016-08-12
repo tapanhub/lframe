@@ -13,56 +13,58 @@
 #define  tcp_set_fun "tcp_set_state"
 
 
-#define  COMMAND_MAX_LEN 128
+#define	COMMAND_MAX_LEN	128
+#define	BUFFERSIZE		sizeof(tcp_info_t)
+#define	TCPENTRIES	80
 
-unsigned long buffersize = 4096 *1024;
-struct dentry *tcpprobe_ctl; 
-
-char command_buf[COMMAND_MAX_LEN + 4]; 
-int filevalue; 
 
 typedef struct tcp_filter {
-	unsigned int saddr;
-	unsigned int daddr;
-	unsigned short int sport;
-	unsigned short int dport;
+	unsigned int	saddr;
+	unsigned int	daddr;
+	unsigned short int 	sport;
+	unsigned short int	dport;
 } tcp_filter_t;	
 	
-tcp_filter_t	filter;	
 
-struct jprobe connect_probe;
-typedef struct tcp_entry {
-	struct timeval tv;
-	int seq;
-	int ack;
-	int snd_ssthresh;
-	int snd_cwnd;
-	int rcv_wnd;
-	int srtt_us;
-	int packets_out;
+struct jprobe 	connect_probe;
+typedef struct 	tcp_entry {
+	struct 	timeval 	tv;
+	int 	seq;
+	int 	ack;
+	int 	snd_ssthresh;
+	int 	snd_cwnd;
+	int 	rcv_wnd;
+	int 	srtt_us;
+	int 	packets_out;
 	
 } tcp_entry_t;
 
-typedef struct tcp_probe_info {
-	int connection_state;
-	int tsize;
-	int usize;
-	int hsize;
-	int max_idx;
-	int idx;
-	unsigned int saddr;
-	unsigned int daddr;
-	unsigned short int sport;
-	unsigned short int dport;
-	int debugfs_created;
-	struct dentry *dbgfile; 
-	struct debugfs_blob_wrapper dbgblob;
-	char fields[16][16];
-	tcp_entry_t entries[0];
+typedef struct 	tcp_probe_info {
+	int 	connection_state;
+	int 	tsize;
+	int 	usize;
+	int 	hsize;
+	int 	max_idx;
+	int 	idx;
+	unsigned int 	saddr;
+	unsigned int 	daddr;
+	unsigned short int 	sport;
+	unsigned short int 	dport;
+	int 	debugfs_created;
+	struct 	dentry *dbgfile; 
+	struct 	debugfs_blob_wrapper dbgblob;
+	char 	fields[16][16];
 } tcp_info_t;
 
 
-tcp_info_t *tcpinfo = NULL;
+
+tcp_info_t 	*tcpinfo = NULL;
+tcpio_msg_t 	*gtmsg = NULL;
+struct 	dentry 	*tcpprobe_ctl; 
+char 	command_buf[COMMAND_MAX_LEN + 4]; 
+int 	filevalue; 
+tcp_filter_t	filter;	
+
 
 tcp_info_t * clear_tcp_info(tcp_info_t *tcpinfo)
 {
@@ -111,11 +113,11 @@ static int init_tcp_info(struct sock *sk, int state, tcp_info_t **tcpinfo)
 	}
 	clear_tcp_info(ti);
 	(ti->dbgblob).data = ti;
-	(ti->dbgblob).size = (unsigned long)buffersize;
+	(ti->dbgblob).size = (unsigned long)BUFFERSIZE;
 	
-	ti->tsize = buffersize;
+	ti->tsize = BUFFERSIZE;
 	ti->usize = sizeof(tcp_entry_t);
-	ti->max_idx = (buffersize - sizeof(tcp_info_t) ) / (*tcpinfo)->usize;
+	ti->max_idx = (BUFFERSIZE - sizeof(tcp_info_t) ) / (*tcpinfo)->usize;
 	ti->hsize = sizeof(tcp_info_t);
 	ti->saddr = (int) inet->inet_saddr;
 	ti->daddr = (int) inet->inet_daddr;
@@ -133,7 +135,6 @@ static int init_tcp_info(struct sock *sk, int state, tcp_info_t **tcpinfo)
 	}
 	(ti)->debugfs_created = 1;
 	return 0;
-
 }
 	
 static void uninit_tcp_info(tcp_info_t **tcpinfo)
@@ -260,7 +261,7 @@ static const struct file_operations tcp_probe_fops = {
 static int  init_debugfs(void) 
 { 
 	tcpprobe_ctl = debugfs_create_file("tcpproble_ctl", 0644, basedir, &filevalue, &tcp_probe_fops);
-	tcpinfo = alloc_tcp_info(buffersize);
+	tcpinfo = alloc_tcp_info(BUFFERSIZE);
 	if (!tcpprobe_ctl) { 
 		printk("error creating command debugfs file tcpprobe_ctl"); 
 		return (-ENODEV); 
@@ -275,6 +276,26 @@ static void  exit_debugfs(void)
 		debugfs_remove(tcpprobe_ctl);
 	}
 } 
+
+tcp_entry_t *get_tcp_entry(void)
+{
+	static int count = 0;
+
+	count++;
+	if (count >= TCPENTRIES) {
+		gtmsg = alloc_tcpio_mem(TCPENTRIES * sizeof(tcp_entry_t));
+	} else {
+		tcpio_send(gtmsg);
+	}
+			
+
+	}
+}
+
+int flush_tcp_entry(void)
+{
+	
+}
 
 void log_tcp_info(struct sock *sk, struct sk_buff *skb, tcp_info_t *tcpinfo)
 {
