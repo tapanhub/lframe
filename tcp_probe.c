@@ -60,6 +60,7 @@ typedef struct 	tcp_probe_info {
 
 tcp_info_t 	*tcpinfo = NULL;
 tcpio_msg_t 	*gtmsg = NULL;
+static int 	tecount = 0;
 struct 	dentry 	*tcpprobe_ctl; 
 char 	command_buf[COMMAND_MAX_LEN + 4]; 
 int 	filevalue; 
@@ -279,22 +280,33 @@ static void  exit_debugfs(void)
 
 tcp_entry_t *get_tcp_entry(void)
 {
-	static int count = 0;
+	tcp_entry_t *te = NULL;
 
-	count++;
-	if (count >= TCPENTRIES) {
-		gtmsg = alloc_tcpio_mem(TCPENTRIES * sizeof(tcp_entry_t));
-	} else {
+	if (tecount >= TCPENTRIES) {
 		tcpio_send(gtmsg);
+		gtmsg = NULL;
+		tecount = 0;
 	}
-			
-
+	if(tecount == 0 || gtmsg == NULL) {
+		gtmsg = alloc_tcpio_mem(TCPENTRIES * sizeof(tcp_entry_t));
+		if(gtmsg == NULL) 
+			return NULL;
+		tecount = 0;
 	}
+	te = &((tcp_entry_t *)gtmsg->buffer)[tecount];
+	tecount++;
+	return te;
 }
 
 int flush_tcp_entry(void)
-{
-	
+{	
+	if(gtmsg != NULL && tecount > 0) {
+		gtmsg->len = sizeof(tcp_entry_t) * tecount;
+		tcpio_send(gtmsg);
+		gtmsg = NULL;
+		tecount = 0;
+	}
+	return 0;
 }
 
 void log_tcp_info(struct sock *sk, struct sk_buff *skb, tcp_info_t *tcpinfo)
@@ -307,12 +319,19 @@ void log_tcp_info(struct sock *sk, struct sk_buff *skb, tcp_info_t *tcpinfo)
 
 	inet = inet_sk(sk);
 
+	te = get_tcp_entry();
+
+	if(te == NULL) {
+		if(printk_ratelimit()) 
+ 			printk("get_tcp_entry returned NULL\n"); 
+		return;
+	}
+
 	if( (tcpinfo->saddr == inet->inet_saddr) && (tcpinfo->sport == inet->inet_sport)
 		&& (tcpinfo->daddr == inet->inet_daddr) && (tcpinfo->dport == inet->inet_dport)
 		&& (tcpinfo->max_idx > tcpinfo->idx)) {
         	tp = tcp_sk(sk);
         	tcb = TCP_SKB_CB(skb);
-		te =  &tcpinfo->entries[tcpinfo->idx];
 		do_gettimeofday(&tv);
 
 		te->tv = tv;
@@ -341,6 +360,7 @@ void my_tcp_set_state(struct sock *sk, int state)
 		printk("tcp connection closed(sport=%d,dport=%d, sip=%d.%d.%d.%d dip=%d.%d.%d.%d\n", 
 			ntohs(inet->inet_sport), ntohs(inet->inet_dport), sip[0], sip[1], sip[2], sip[3], 
 			dip[0], dip[1], dip[2], dip[3]);
+		flush_tcp_entry();
 	}
 	jprobe_return();
 }

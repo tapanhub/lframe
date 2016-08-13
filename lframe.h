@@ -38,6 +38,7 @@ typedef struct {
 
 extern void *alloc_tcpio_mem(int size);
 extern void free_tcpio_mem(void *buf);
+extern int tcpio_send(tcpio_msg_t *tmsg);
 
 extern struct lframe_config lfconfig;
 extern void cleanup_tcpio(void);

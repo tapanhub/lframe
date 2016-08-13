@@ -70,6 +70,7 @@ int create_socket(void)
 	struct sockaddr_in sin;
 
 	if(tcpio_info->connected == 1 && lfconfig.reconfig != 1) {
+		printk("already connected\n");
 		return 0;
 	}
 	if (tcpio_info->client_socket != NULL) {
@@ -104,6 +105,7 @@ int create_socket(void)
 	error = socket->ops->connect(socket, (struct sockaddr *)&sin, sizeof(sin), 0);
 	printk("connect returned %d\n", error);
 	if (error < 0) {
+		tcpio_info->connected = 0;
 		printk(KERN_ERR "connect failed");
 		return -1;
 	} else {
