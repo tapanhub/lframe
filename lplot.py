@@ -52,12 +52,12 @@ def get_header(fl):
 	d=dict(zip(header, h))
 	return d
 	
-def get_samples(data, d):
+def get_samples(data):
 	uarray=[]
-	count=d['idx']
+	count=48
 	for i in range(count-1):
-		if (i+1)*d['usize'] <= len(data):
-			udata=unpack('QQIIIIIIIi', data[(i*d['usize']):((i+1)*d['usize'])])
+		if (i+1)*48 <= len(data):
+			udata=unpack('QQIIIIIIIi', data[(i*48):((i+1)*48)])
 			uarray.append(udata)
 			ud=dict(zip(uhdr, udata))
 		else:
@@ -108,15 +108,7 @@ def main(argv):
 	filebuf=f.read();
 	f.close()
 
-	d=get_header(filebuf)
-
-	sip=int_2_ip(d['saddr'], 1)
-	dip=int_2_ip(d['daddr'], 1)
-	sp=socket.ntohs(d['sport'])
-	dp=socket.ntohs(d['dport'])
-	count=d['idx']
-	print sip, dip, sp, dp, count
-	uarray=get_samples(filebuf[d['hsize']:], d)
+	uarray=get_samples(filebuf)
 	rebase_uarray=rebase_items(uarray)
 
 	plt.plot([x[0] for x in rebase_uarray], [x[1] for x in rebase_uarray])

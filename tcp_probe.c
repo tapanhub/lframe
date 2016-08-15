@@ -44,7 +44,6 @@ typedef struct 	tcp_probe_info {
 	int 	tsize;
 	int 	usize;
 	int 	hsize;
-	int 	max_idx;
 	int 	idx;
 	unsigned int 	saddr;
 	unsigned int 	daddr;
@@ -66,6 +65,8 @@ char 	command_buf[COMMAND_MAX_LEN + 4];
 int 	filevalue; 
 tcp_filter_t	filter;	
 
+int filter_connection(struct sock *sk);
+int check_pkt(struct sock *sk, tcp_info_t *tcpinfo);
 
 tcp_info_t * clear_tcp_info(tcp_info_t *tcpinfo)
 {
@@ -73,7 +74,6 @@ tcp_info_t * clear_tcp_info(tcp_info_t *tcpinfo)
 		debugfs_remove(tcpinfo->dbgfile);
 	}
 	memset(tcpinfo, '\0', sizeof(tcp_info_t));
-	memset(&filter, '\0', sizeof(tcp_filter_t));	
 	return tcpinfo;
 }
 tcp_info_t * alloc_tcp_info(unsigned long size)
@@ -105,20 +105,28 @@ static int init_tcp_info(struct sock *sk, int state, tcp_info_t **tcpinfo)
 	if(ti == NULL) {
 		return -1;
 	}
-	if (!(( !filter.sport || filter.sport == inet->inet_sport) &&
-	   ( !filter.dport || filter.dport == inet->inet_dport) &&
-	   ( !filter.saddr || filter.saddr == inet->inet_sport) &&
-	   ( !filter.daddr || filter.daddr == inet->inet_dport))) {
+	if (!filter_connection(sk)) {
+		unsigned char *fdip = (unsigned char *)&filter.daddr;
+		unsigned char *fsip = (unsigned char *)&filter.saddr;
+		printk("sock_%d.%d.%d.%d.%d_%d.%d.%d.%d.%d and filter_%d.%d.%d.%d.%d_%d.%d.%d.%d.%d do not match\n", 
+			sip[0], sip[1], sip[2], sip[3], ntohs(inet->inet_sport),
+			dip[0], dip[1], dip[2], dip[3], ntohs(inet->inet_dport),
+			fsip[0], fsip[1], fsip[2], fsip[3], ntohs(filter.sport),
+			fdip[0], fdip[1], fdip[2], fdip[3], ntohs(filter.dport));
+
 		return -1;
-		
 	}
+
+	printk("sock_%d.%d.%d.%d.%d_%d.%d.%d.%d.%d matching with filter\n", 
+			sip[0], sip[1], sip[2], sip[3], ntohs(inet->inet_sport),
+			dip[0], dip[1], dip[2], dip[3], ntohs(inet->inet_dport));
+
 	clear_tcp_info(ti);
 	(ti->dbgblob).data = ti;
 	(ti->dbgblob).size = (unsigned long)BUFFERSIZE;
 	
 	ti->tsize = BUFFERSIZE;
 	ti->usize = sizeof(tcp_entry_t);
-	ti->max_idx = (BUFFERSIZE - sizeof(tcp_info_t) ) / (*tcpinfo)->usize;
 	ti->hsize = sizeof(tcp_info_t);
 	ti->saddr = (int) inet->inet_saddr;
 	ti->daddr = (int) inet->inet_daddr;
@@ -254,14 +262,33 @@ static ssize_t tcp_probe_write(struct file *fp, const char __user *user_buffer,
 		dip[0], dip[1], dip[2], dip[3], ntohs(filter.dport));
 	return count;
 } 
- 
+
+static int tcp_probe_show(struct seq_file *s, void *unused)
+{
+	unsigned char *dip = (unsigned char *)&filter.daddr;
+	unsigned char *sip = (unsigned char *)&filter.saddr;
+	seq_printf(s, "filter installed: saddr=%d.%d.%d.%d sport=%d daddr=%d.%d.%d.%d dport=%d\n",
+			sip[0], sip[1], sip[2], sip[3], ntohs(filter.sport),
+			dip[0], dip[1], dip[2], dip[3], ntohs(filter.dport));
+        return 0;
+}
+
+static int tcp_probe_open(struct inode *inode, struct file *file)
+{
+        return single_open(file, tcp_probe_show, NULL);
+}
+
 static const struct file_operations tcp_probe_fops = { 
-        .write = tcp_probe_write, 
+	.open           = tcp_probe_open,
+        .read           = seq_read,
+        .llseek         = seq_lseek,
+        .release        = single_release,
+        .write 		= tcp_probe_write, 
 }; 
  
 static int  init_debugfs(void) 
 { 
-	tcpprobe_ctl = debugfs_create_file("tcpproble_ctl", 0644, basedir, &filevalue, &tcp_probe_fops);
+	tcpprobe_ctl = debugfs_create_file("tcpprobe_ctl", 0644, basedir, &filevalue, &tcp_probe_fops);
 	tcpinfo = alloc_tcp_info(BUFFERSIZE);
 	if (!tcpprobe_ctl) { 
 		printk("error creating command debugfs file tcpprobe_ctl"); 
@@ -289,8 +316,10 @@ tcp_entry_t *get_tcp_entry(void)
 	}
 	if(tecount == 0 || gtmsg == NULL) {
 		gtmsg = alloc_tcpio_mem(TCPENTRIES * sizeof(tcp_entry_t));
-		if(gtmsg == NULL) 
+		if(gtmsg == NULL) {
+			printk("Unable to allocate tcpio memory\n");
 			return NULL;
+		}
 		tecount = 0;
 	}
 	te = &((tcp_entry_t *)gtmsg->buffer)[tecount];
@@ -305,6 +334,40 @@ int flush_tcp_entry(void)
 		tcpio_send(gtmsg);
 		gtmsg = NULL;
 		tecount = 0;
+	}
+	return 0;
+}
+int check_pkt(struct sock *sk, tcp_info_t *tcpinfo)
+{
+	struct inet_sock *inet;
+
+	inet = inet_sk(sk);
+
+	if((tcpinfo->saddr == inet->inet_saddr) && (tcpinfo->sport == inet->inet_sport) && 
+	(tcpinfo->daddr == inet->inet_daddr) && (tcpinfo->dport == inet->inet_dport)) {
+		return 1;
+	}
+	return 0;
+}
+
+int filter_connection(struct sock *sk)
+{
+
+	struct inet_sock *inet;
+
+	inet = inet_sk(sk);
+
+	if(filter.saddr != 0 && !(filter.saddr == inet->inet_saddr)) {
+		return 1;
+	}
+	if(filter.sport != 0 && !(filter.sport == inet->inet_sport)) {
+		return 1;
+	}
+	if(filter.daddr != 0 && !(filter.daddr == inet->inet_daddr)) {
+		return 1;
+	}
+	if(filter.dport != 0 && !(filter.dport == inet->inet_dport)) {
+		return 1;
 	}
 	return 0;
 }
@@ -327,9 +390,7 @@ void log_tcp_info(struct sock *sk, struct sk_buff *skb, tcp_info_t *tcpinfo)
 		return;
 	}
 
-	if( (tcpinfo->saddr == inet->inet_saddr) && (tcpinfo->sport == inet->inet_sport)
-		&& (tcpinfo->daddr == inet->inet_daddr) && (tcpinfo->dport == inet->inet_dport)
-		&& (tcpinfo->max_idx > tcpinfo->idx)) {
+	if(check_pkt(sk, tcpinfo)) {
         	tp = tcp_sk(sk);
         	tcb = TCP_SKB_CB(skb);
 		do_gettimeofday(&tv);
@@ -360,7 +421,9 @@ void my_tcp_set_state(struct sock *sk, int state)
 		printk("tcp connection closed(sport=%d,dport=%d, sip=%d.%d.%d.%d dip=%d.%d.%d.%d\n", 
 			ntohs(inet->inet_sport), ntohs(inet->inet_dport), sip[0], sip[1], sip[2], sip[3], 
 			dip[0], dip[1], dip[2], dip[3]);
-		flush_tcp_entry();
+		if(filter_connection(sk)) {
+			flush_tcp_entry();
+		}
 	}
 	jprobe_return();
 }

@@ -22,8 +22,7 @@
 #include "lframe.h"
 
 #define SERVER_PORT 55555
-//#define SERVER_ADDR 0x7f000001
-#define SERVER_ADDR 0xc0a80a01
+#define SERVER_ADDR 0x7f000001
 
 int tcpio_thread(void);
 int tcpio_start(void);
@@ -80,8 +79,6 @@ int create_socket(void)
 	} 
 
 	error = sock_create(PF_INET, SOCK_STREAM, IPPROTO_TCP, &tcpio_info->client_socket);
-	printk("sock_create returned %d\n", error);
-
 	if (error < 0) {
 		printk(KERN_ERR "CREATE SOCKET ERROR");
 		return -1;
@@ -103,13 +100,12 @@ int create_socket(void)
 		sin.sin_port = htons(SERVER_PORT);
 	}
 	error = socket->ops->connect(socket, (struct sockaddr *)&sin, sizeof(sin), 0);
-	printk("connect returned %d\n", error);
 	if (error < 0) {
 		tcpio_info->connected = 0;
 		printk(KERN_ERR "connect failed");
 		return -1;
 	} else {
-		printk("connected\n");
+		printk("tcp io connected\n");
 		tcpio_info->connected = 1;
 	}
 	return 0;
