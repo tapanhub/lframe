@@ -54,14 +54,11 @@ def get_header(fl):
 	
 def get_samples(data):
 	uarray=[]
-	count=48
-	for i in range(count-1):
-		if (i+1)*48 <= len(data):
-			udata=unpack('QQIIIIIIIi', data[(i*48):((i+1)*48)])
-			uarray.append(udata)
-			ud=dict(zip(uhdr, udata))
-		else:
-			break
+	count=int(len(data)/48)
+	for i in range(count):
+		udata=unpack('QQIIIIIIIi', data[(i*48):((i+1)*48)])
+		uarray.append(udata)
+		ud=dict(zip(uhdr, udata))
 	return uarray
 def convert_time(item):
 	basetime=item[0] + (item[1]/1000000)
@@ -109,7 +106,9 @@ def main(argv):
 	f.close()
 
 	uarray=get_samples(filebuf)
+	print 'uarray received:%d' % (len(uarray))
 	rebase_uarray=rebase_items(uarray)
+	print 'items received:%d' % (len(rebase_uarray))
 
 	plt.plot([x[0] for x in rebase_uarray], [x[1] for x in rebase_uarray])
 	plt.xlabel('time (s)')

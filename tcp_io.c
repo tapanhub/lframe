@@ -48,6 +48,7 @@ void *alloc_tcpio_mem(int size)
 {
 	tcpio_msg_t *tmsg;
 	tmsg = kmalloc(sizeof(tcpio_msg_t) + size, GFP_ATOMIC);
+	memset(tmsg, 0, sizeof(tcpio_msg_t) + size);
 	if(tmsg) {
 		tmsg->len=size;
 	} else {

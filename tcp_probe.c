@@ -308,6 +308,7 @@ static void  exit_debugfs(void)
 tcp_entry_t *get_tcp_entry(void)
 {
 	tcp_entry_t *te = NULL;
+	int allocated = 0;
 
 	if (tecount >= TCPENTRIES) {
 		tcpio_send(gtmsg);
@@ -315,14 +316,16 @@ tcp_entry_t *get_tcp_entry(void)
 		tecount = 0;
 	}
 	if(tecount == 0 || gtmsg == NULL) {
+		tecount = 0;
 		gtmsg = alloc_tcpio_mem(TCPENTRIES * sizeof(tcp_entry_t));
 		if(gtmsg == NULL) {
 			printk("Unable to allocate tcpio memory\n");
 			return NULL;
 		}
-		tecount = 0;
+		allocated=1;
 	}
-	te = &((tcp_entry_t *)gtmsg->buffer)[tecount];
+	te = &(((tcp_entry_t *)gtmsg->buffer)[tecount]);
+	//printk("count = %d allocated =%d te=%#x\n", tecount, allocated, (unsigned int)te);
 	tecount++;
 	return te;
 }
