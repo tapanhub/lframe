@@ -78,6 +78,7 @@ def rebase_items(uarray):
 		value[1]=value[1]-basevalue[1]
 		value[2]=value[2]-basevalue[2]
 		rebase_uarray.append((value))
+		print value
 	return rebase_uarray
 
 

@@ -36,6 +36,27 @@ typedef struct {
 	char	buffer[];
 } tcpio_msg_t;
 
+typedef unsigned int lhkey_t;
+
+typedef struct lh_entry {
+	struct 	list_head list;
+	lhkey_t	key;
+	int	count;
+} lh_entry_t;
+
+
+typedef struct lh_funcs {
+	int (*search) (void *, void *);	
+	int (*free) (void *);
+} lh_func_t;
+		
+
+typedef int (*searchfunp_t) (void *);
+typedef struct lh_table {
+	int 	size;
+	lh_entry_t table[];
+} lh_table_t;
+
 extern void *alloc_tcpio_mem(int size);
 extern void free_tcpio_mem(void *buf);
 extern int tcpio_send(tcpio_msg_t *tmsg);
@@ -43,6 +64,14 @@ extern int tcpio_send(tcpio_msg_t *tmsg);
 extern struct lframe_config lfconfig;
 extern void cleanup_tcpio(void);
 extern int init_tcpio(void);
+
+
+extern lh_table_t * lh_init(lh_func_t *ops, int size);
+extern void lh_exit(lh_table_t *lht);
+extern void * lh_search(lh_table_t *lht, lhkey_t key, void *data);
+extern int lh_insert(lh_table_t *lht, void *entry, lhkey_t key);
+extern int lh_delete(lh_table_t *lht, void *entry, lhkey_t key);
+
 #define register_lframe(name, initfun, exitfun)		\
     static lframe_entry_t __lframe_ ## initfun ## exitfun	\
     __attribute__((__section__("LFRAME"))) __used = {			\

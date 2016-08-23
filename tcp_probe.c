@@ -40,6 +40,7 @@ typedef struct 	tcp_entry {
 } tcp_entry_t;
 
 typedef struct 	tcp_probe_info {
+	struct	list_head list;
 	int 	connection_state;
 	int 	tsize;
 	int 	usize;
@@ -57,16 +58,18 @@ typedef struct 	tcp_probe_info {
 
 
 
-tcp_info_t 	*tcpinfo = NULL;
-tcpio_msg_t 	*gtmsg = NULL;
-static int 	tecount = 0;
-struct 	dentry 	*tcpprobe_ctl; 
-char 	command_buf[COMMAND_MAX_LEN + 4]; 
-int 	filevalue; 
-tcp_filter_t	filter;	
+tcp_info_t 		*tcpinfo = NULL;
+tcpio_msg_t 		*gtmsg = NULL;
+static int 		tecount = 0;
+struct 	dentry 		*tcpprobe_ctl; 
+char 			command_buf[COMMAND_MAX_LEN + 4]; 
+int 			filevalue; 
+tcp_filter_t		gfilter;	
+static lh_table_t 	*hashtable;
 
 int filter_connection(struct sock *sk);
 int check_pkt(struct sock *sk, tcp_info_t *tcpinfo);
+tcp_info_t *allocate_node(tcp_info_t *head);
 
 tcp_info_t * clear_tcp_info(tcp_info_t *tcpinfo)
 {
@@ -76,19 +79,16 @@ tcp_info_t * clear_tcp_info(tcp_info_t *tcpinfo)
 	memset(tcpinfo, '\0', sizeof(tcp_info_t));
 	return tcpinfo;
 }
-tcp_info_t * alloc_tcp_info(unsigned long size)
+tcp_info_t * alloc_tcp_info(gfp_t flags)
 {
-	if(tcpinfo) {
-		return tcpinfo;
-	}
-	tcpinfo = vmalloc(size);
+	tcpinfo = kmalloc(sizeof(tcpio_msg_t), flags);
 	memset(tcpinfo, '\0', sizeof(tcp_info_t));
 	return tcpinfo;
 }
 void free_tcp_info(tcp_info_t *tcpinfo)
 {
 	if(tcpinfo) {
-		vfree(tcpinfo);
+		kfree(tcpinfo);
 	}
 }
 	
@@ -106,13 +106,13 @@ static int init_tcp_info(struct sock *sk, int state, tcp_info_t **tcpinfo)
 		return -1;
 	}
 	if (!filter_connection(sk)) {
-		unsigned char *fdip = (unsigned char *)&filter.daddr;
-		unsigned char *fsip = (unsigned char *)&filter.saddr;
+		unsigned char *fdip = (unsigned char *)&gfilter.daddr;
+		unsigned char *fsip = (unsigned char *)&gfilter.saddr;
 		printk("sock_%d.%d.%d.%d.%d_%d.%d.%d.%d.%d and filter_%d.%d.%d.%d.%d_%d.%d.%d.%d.%d do not match\n", 
 			sip[0], sip[1], sip[2], sip[3], ntohs(inet->inet_sport),
 			dip[0], dip[1], dip[2], dip[3], ntohs(inet->inet_dport),
-			fsip[0], fsip[1], fsip[2], fsip[3], ntohs(filter.sport),
-			fdip[0], fdip[1], fdip[2], fdip[3], ntohs(filter.dport));
+			fsip[0], fsip[1], fsip[2], fsip[3], ntohs(gfilter.sport),
+			fdip[0], fdip[1], fdip[2], fdip[3], ntohs(gfilter.dport));
 
 		return -1;
 	}
@@ -157,8 +157,8 @@ static ssize_t tcp_probe_write(struct file *fp, const char __user *user_buffer,
 { 
 	char *s;
 	long kint;
-	unsigned char *dip = (unsigned char *)&filter.daddr;
-	unsigned char *sip = (unsigned char *)&filter.saddr;
+	unsigned char *dip = (unsigned char *)&gfilter.daddr;
+	unsigned char *sip = (unsigned char *)&gfilter.saddr;
 	int i=0;
 	
 	memset(command_buf, '\0', sizeof(command_buf));
@@ -198,7 +198,7 @@ static ssize_t tcp_probe_write(struct file *fp, const char __user *user_buffer,
 			return -EINVAL;
 		}
 		if(kint > 0 && kint < 65535) {
-			filter.sport = htons(kint);
+			gfilter.sport = htons(kint);
 		} else {
 			printk("invalid sport in \"%s\"\n", command_buf);
 			return -EINVAL;
@@ -222,7 +222,7 @@ static ssize_t tcp_probe_write(struct file *fp, const char __user *user_buffer,
 			return -EINVAL;
 		}
 		if(kint > 0 && kint < 65535) {
-			filter.dport = htons(kint);
+			gfilter.dport = htons(kint);
 		} else {
 			printk("invalid dport in \"%s\"\n", command_buf);
 			return -EINVAL;
@@ -241,7 +241,7 @@ static ssize_t tcp_probe_write(struct file *fp, const char __user *user_buffer,
 			ipaddr[i++] = *s++;
 		}
 		ipaddr[i] = '\0';
-		filter.saddr = in_aton(ipaddr);
+		gfilter.saddr = in_aton(ipaddr);
 	} 
 	if ((s=strstr(command_buf, "daddr="))) {
 		char ipaddr[20] = {0};
@@ -255,21 +255,21 @@ static ssize_t tcp_probe_write(struct file *fp, const char __user *user_buffer,
 			ipaddr[i++] = *s++;
 		}
 		ipaddr[i] = '\0';
-		filter.daddr = in_aton(ipaddr);
+		gfilter.daddr = in_aton(ipaddr);
 	} 
 	printk("new filter installed: saddr=%d.%d.%d.%d sport=%d daddr=%d.%d.%d.%d dport=%d\n",
-		sip[0], sip[1], sip[2], sip[3], ntohs(filter.sport),
-		dip[0], dip[1], dip[2], dip[3], ntohs(filter.dport));
+		sip[0], sip[1], sip[2], sip[3], ntohs(gfilter.sport),
+		dip[0], dip[1], dip[2], dip[3], ntohs(gfilter.dport));
 	return count;
 } 
 
 static int tcp_probe_show(struct seq_file *s, void *unused)
 {
-	unsigned char *dip = (unsigned char *)&filter.daddr;
-	unsigned char *sip = (unsigned char *)&filter.saddr;
+	unsigned char *dip = (unsigned char *)&gfilter.daddr;
+	unsigned char *sip = (unsigned char *)&gfilter.saddr;
 	seq_printf(s, "filter installed: saddr=%d.%d.%d.%d sport=%d daddr=%d.%d.%d.%d dport=%d\n",
-			sip[0], sip[1], sip[2], sip[3], ntohs(filter.sport),
-			dip[0], dip[1], dip[2], dip[3], ntohs(filter.dport));
+			sip[0], sip[1], sip[2], sip[3], ntohs(gfilter.sport),
+			dip[0], dip[1], dip[2], dip[3], ntohs(gfilter.dport));
         return 0;
 }
 
@@ -285,15 +285,31 @@ static const struct file_operations tcp_probe_fops = {
         .release        = single_release,
         .write 		= tcp_probe_write, 
 }; 
+tcp_info_t *allocate_node(tcp_info_t *head)
+{
+	tcp_info_t *node;
+	node = alloc_tcp_info(GFP_ATOMIC);
+	if(node) {
+		memset(node, 0, sizeof(tcp_info_t));
+		INIT_LIST_HEAD(&node->list);
+		list_add(&node->list, &head->list);
+	}
+	return node;
+}
  
 static int  init_debugfs(void) 
 { 
 	tcpprobe_ctl = debugfs_create_file("tcpprobe_ctl", 0644, basedir, &filevalue, &tcp_probe_fops);
-	tcpinfo = alloc_tcp_info(BUFFERSIZE);
+	tcpinfo = alloc_tcp_info(GFP_KERNEL);
 	if (!tcpprobe_ctl) { 
 		printk("error creating command debugfs file tcpprobe_ctl"); 
 		return (-ENODEV); 
 	}
+	if(!tcpinfo) {
+		printk("Unable to allocate tcpinfo\n");
+		return -ENOMEM;
+	}
+	INIT_LIST_HEAD(&tcpinfo->list);
 	return 0;
 } 
 
@@ -349,6 +365,17 @@ int check_pkt(struct sock *sk, tcp_info_t *tcpinfo)
 	if((tcpinfo->saddr == inet->inet_saddr) && (tcpinfo->sport == inet->inet_sport) && 
 	(tcpinfo->daddr == inet->inet_daddr) && (tcpinfo->dport == inet->inet_dport)) {
 		return 1;
+	} else {
+		unsigned char *dip = (unsigned char *)&inet->inet_daddr;
+		unsigned char *sip = (unsigned char *)&inet->inet_saddr;
+		unsigned char *fdip = (unsigned char *)&tcpinfo->daddr;
+		unsigned char *fsip = (unsigned char *)&tcpinfo->saddr;
+		printk("tcp connection info: sport=%d,dport=%d, sip=%d.%d.%d.%d dip=%d.%d.%d.%d\n", 
+			ntohs(inet->inet_sport), ntohs(inet->inet_dport), sip[0], sip[1], sip[2], sip[3], 
+			dip[0], dip[1], dip[2], dip[3]);
+		printk("tcp connection info: sport=%d,dport=%d, sip=%d.%d.%d.%d dip=%d.%d.%d.%d\n", 
+			ntohs(tcpinfo->sport), ntohs(tcpinfo->dport), fsip[0], fsip[1], fsip[2], fsip[3], 
+			fdip[0], fdip[1], fdip[2], fdip[3]);
 	}
 	return 0;
 }
@@ -360,20 +387,32 @@ int filter_connection(struct sock *sk)
 
 	inet = inet_sk(sk);
 
-	if(filter.saddr != 0 && !(filter.saddr == inet->inet_saddr)) {
+	if(gfilter.saddr != 0 && !(gfilter.saddr == inet->inet_saddr)) {
 		return 1;
 	}
-	if(filter.sport != 0 && !(filter.sport == inet->inet_sport)) {
+	if(gfilter.sport != 0 && !(gfilter.sport == inet->inet_sport)) {
 		return 1;
 	}
-	if(filter.daddr != 0 && !(filter.daddr == inet->inet_daddr)) {
+	if(gfilter.daddr != 0 && !(gfilter.daddr == inet->inet_daddr)) {
 		return 1;
 	}
-	if(filter.dport != 0 && !(filter.dport == inet->inet_dport)) {
+	if(gfilter.dport != 0 && !(gfilter.dport == inet->inet_dport)) {
 		return 1;
 	}
 	return 0;
 }
+
+lhkey_t getkey(int saddr, int daddr, short sport, short dport)
+{
+	return (saddr ^ daddr ^ ((sport << (sizeof short))|dport))
+}
+
+int tcp_probe_search(void *node, void *data)
+{
+	tcp_info_t *tcpinfo = (tcp_info_t *) node;
+	tcp_filter_t *filter = (tcp_filter_t *)data;
+}
+
 
 void log_tcp_info(struct sock *sk, struct sk_buff *skb, tcp_info_t *tcpinfo)
 {
@@ -385,15 +424,16 @@ void log_tcp_info(struct sock *sk, struct sk_buff *skb, tcp_info_t *tcpinfo)
 
 	inet = inet_sk(sk);
 
-	te = get_tcp_entry();
-
-	if(te == NULL) {
-		if(printk_ratelimit()) 
- 			printk("get_tcp_entry returned NULL\n"); 
-		return;
-	}
-
+	
 	if(check_pkt(sk, tcpinfo)) {
+		te = get_tcp_entry();
+
+		if(te == NULL) {
+			if(printk_ratelimit()) 
+ 				printk("get_tcp_entry returned NULL\n"); 
+			return;
+		}
+
         	tp = tcp_sk(sk);
         	tcb = TCP_SKB_CB(skb);
 		do_gettimeofday(&tv);
@@ -446,6 +486,7 @@ int tcp_probe_init(void *arg)
 	int ret;
 	ret = install_probe(&en->probe, (kprobe_opcode_t *)my_tcp_transmit_skb, tcp_probe_fun);
 	ret = install_probe(&connect_probe, (kprobe_opcode_t *)my_tcp_set_state, tcp_set_fun);
+	hashtable = lh_init(
 	init_debugfs();
 	return ret;
 }
