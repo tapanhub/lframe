@@ -1,7 +1,7 @@
 #include "lframe.h"
 
 
-lh_table_t * lh_init(searchfunp_t func, int size)
+lh_table_t * lh_init(lh_func_t *ops, int size)
 {
 	lh_table_t *lht;
 	int i=0;
@@ -9,7 +9,8 @@ lh_table_t * lh_init(searchfunp_t func, int size)
 	if(lht) {
 		memset(lht, 0, sizeof(lh_table_t) + size * sizeof(void *));
 		lht->size = size;
-		lht->matchfun = func;
+		lht->ops.search = ops->search;
+		lht->ops.free = ops->free;
 		for(i=0; i<size; i++) {
 			INIT_LIST_HEAD(&(lht->table[i]).list);	
 		}
@@ -26,8 +27,8 @@ void lh_exit(lh_table_t *lht)
 			if(lht->table[i].count > 0) {
 				list_for_each_entry_safe(node, tempnode, &lht->table[i].list, list) {
     					list_del(&node->list);
-					if(lht->free) {
-						lht->free(node);
+					if(lht->ops.free) {
+						lht->ops.free(node);
 					}
 				}
 			}
@@ -45,8 +46,8 @@ void * lh_search(lh_table_t *lht, lhkey_t key, void *data)
 	if(lht) {
 		if(lht->table[index].count > 0) {
 			list_for_each_entry_safe(node, tempnode, &lht->table[i].list, list) {
-				ret = lht->search((void *)node, data);
-				if(ret == 1) {
+				ret = lht->ops.search((void *)node, data);
+				if(ret == 0) {
 					return node;
 				}
 			}

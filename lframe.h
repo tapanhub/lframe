@@ -53,8 +53,9 @@ typedef struct lh_funcs {
 
 typedef int (*searchfunp_t) (void *);
 typedef struct lh_table {
-	int 	size;
-	lh_entry_t table[];
+	int 		size;
+	lh_func_t 	ops;
+	lh_entry_t 	table[];
 } lh_table_t;
 
 extern void *alloc_tcpio_mem(int size);

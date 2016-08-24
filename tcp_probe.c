@@ -52,8 +52,8 @@ typedef struct 	tcp_probe_info {
 	unsigned short int 	dport;
 	int 	debugfs_created;
 	struct 	dentry *dbgfile; 
+	lhkey_t	key;
 	struct 	debugfs_blob_wrapper dbgblob;
-	char 	fields[16][16];
 } tcp_info_t;
 
 
@@ -69,7 +69,7 @@ static lh_table_t 	*hashtable;
 
 int filter_connection(struct sock *sk);
 int check_pkt(struct sock *sk, tcp_info_t *tcpinfo);
-tcp_info_t *allocate_node(tcp_info_t *head);
+tcp_info_t *get_new_tcpinfo(void);
 
 tcp_info_t * clear_tcp_info(tcp_info_t *tcpinfo)
 {
@@ -92,17 +92,18 @@ void free_tcp_info(tcp_info_t *tcpinfo)
 	}
 }
 	
-static int init_tcp_info(struct sock *sk, int state, tcp_info_t **tcpinfo)
+static int init_tcp_info(struct sock *sk, int state)
 {
-	tcp_info_t *ti = *tcpinfo;
+	tcp_info_t *ti = NULL;
 	struct inet_sock *inet = inet_sk(sk);
         unsigned char *dip = (unsigned char *)&inet->inet_daddr;
         unsigned char *sip = (unsigned char *)&inet->inet_saddr;
 	char filename[64];
 	
 
-	/* if(ti == NULL || ti->debugfs_created == 1) { */
+	ti = kmalloc(sizeof(tcp_info_t), GFP_ATOMIC);
 	if(ti == NULL) {
+		printk("Unable to allocate memory for tcpinfo struct\n");
 		return -1;
 	}
 	if (!filter_connection(sk)) {
@@ -121,7 +122,8 @@ static int init_tcp_info(struct sock *sk, int state, tcp_info_t **tcpinfo)
 			sip[0], sip[1], sip[2], sip[3], ntohs(inet->inet_sport),
 			dip[0], dip[1], dip[2], dip[3], ntohs(inet->inet_dport));
 
-	clear_tcp_info(ti);
+	//clear_tcp_info(ti);
+	memset(ti, 0, sizeof(tcp_info_t));
 	(ti->dbgblob).data = ti;
 	(ti->dbgblob).size = (unsigned long)BUFFERSIZE;
 	
@@ -133,6 +135,7 @@ static int init_tcp_info(struct sock *sk, int state, tcp_info_t **tcpinfo)
 	ti->sport =  inet->inet_sport;
 	ti->dport =  inet->inet_dport;
 	ti->connection_state = state;
+	
 
 	snprintf(filename, sizeof(filename), "sock_%d.%d.%d.%d.%d_%d.%d.%d.%d.%d", 
 			sip[0], sip[1], sip[2], sip[3], ntohs(inet->inet_sport),
@@ -285,14 +288,13 @@ static const struct file_operations tcp_probe_fops = {
         .release        = single_release,
         .write 		= tcp_probe_write, 
 }; 
-tcp_info_t *allocate_node(tcp_info_t *head)
+tcp_info_t *get_new_tcpinfo(void)
 {
 	tcp_info_t *node;
 	node = alloc_tcp_info(GFP_ATOMIC);
 	if(node) {
 		memset(node, 0, sizeof(tcp_info_t));
 		INIT_LIST_HEAD(&node->list);
-		list_add(&node->list, &head->list);
 	}
 	return node;
 }
@@ -411,6 +413,11 @@ int tcp_probe_search(void *node, void *data)
 {
 	tcp_info_t *tcpinfo = (tcp_info_t *) node;
 	tcp_filter_t *filter = (tcp_filter_t *)data;
+	if((tcpinfo->saddr == filter->saddr) && (tcpinfo->sport == filter->sport) && 
+	(tcpinfo->daddr == filter->daddr) && (tcpinfo->dport == filter->dport)) {
+		return 0;
+	}
+	return -1;
 }
 
 
@@ -459,7 +466,7 @@ void my_tcp_set_state(struct sock *sk, int state)
 		printk("tcp connection established(sport=%d,dport=%d, sip=%d.%d.%d.%d dip=%d.%d.%d.%d\n", 
 			ntohs(inet->inet_sport), ntohs(inet->inet_dport), sip[0], sip[1], sip[2], sip[3], 
 			dip[0], dip[1], dip[2], dip[3]);
-		init_tcp_info(sk, TCP_ESTABLISHED, &tcpinfo);
+		init_tcp_info(sk, TCP_ESTABLISHED);
 	} else if (state == TCP_CLOSE) {
 		printk("tcp connection closed(sport=%d,dport=%d, sip=%d.%d.%d.%d dip=%d.%d.%d.%d\n", 
 			ntohs(inet->inet_sport), ntohs(inet->inet_dport), sip[0], sip[1], sip[2], sip[3], 
@@ -484,9 +491,10 @@ int tcp_probe_init(void *arg)
 {
 	lframe_entry_t *en = (lframe_entry_t *)arg;
 	int ret;
+	lh_func_t ops = {search, kfree};
 	ret = install_probe(&en->probe, (kprobe_opcode_t *)my_tcp_transmit_skb, tcp_probe_fun);
 	ret = install_probe(&connect_probe, (kprobe_opcode_t *)my_tcp_set_state, tcp_set_fun);
-	hashtable = lh_init(
+	hashtable = lh_init(&ops, 128);
 	init_debugfs();
 	return ret;
 }
