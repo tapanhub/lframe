@@ -67,6 +67,9 @@ int lh_delete(lh_table_t *lht, void *entry, lhkey_t key)
 {
 	int index = key % lht->size;
 	list_del(&(lh_entry_t *)entry->list, &lht->table[index].list);
+	if(lht->ops.free) {
+		lht->ops.free(node);
+	}
 	lht->table[index].count--;
 	if(lht->table[index].count < 0) {
 		printk("Bug: chain count is negative\n");
