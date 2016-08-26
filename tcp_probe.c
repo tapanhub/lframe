@@ -55,7 +55,16 @@ typedef struct 	tcp_probe_info {
 
 
 
-tcp_info_t 		*tcpinfo = NULL;
+int tcp_probe_search(void *node, void *data);
+void free_tcp_info(tcp_info_t *tcpinfo);
+int filter_connection(struct sock *sk);
+int check_pkt(struct sock *sk, tcp_info_t *tcpinfo);
+tcp_info_t *get_new_tcpinfo(void);
+lhkey_t getkey(tcp_filter_t *filter);
+
+
+
+
 tcpio_msg_t 		*gtmsg = NULL;
 static int 		tecount = 0;
 struct 	dentry 		*tcpprobe_ctl; 
@@ -63,27 +72,22 @@ char 			command_buf[COMMAND_MAX_LEN + 4];
 int 			filevalue; 
 tcp_filter_t		gfilter;	
 static lh_table_t 	*hashtable;
+lh_func_t ops = {(searchfunp_t)tcp_probe_search, (freefunp_t)free_tcp_info};
 
-int filter_connection(struct sock *sk);
-int check_pkt(struct sock *sk, tcp_info_t *tcpinfo);
-tcp_info_t *get_new_tcpinfo(void);
 
-tcp_info_t * clear_tcp_info(tcp_info_t *tcpinfo)
-{
-	if(tcpinfo->debugfs_created == 1) {
-		debugfs_remove(tcpinfo->dbgfile);
-	}
-	memset(tcpinfo, '\0', sizeof(tcp_info_t));
-	return tcpinfo;
-}
+
+
 tcp_info_t * alloc_tcp_info(gfp_t flags)
 {
+	tcp_info_t *tcpinfo;
 	tcpinfo = kmalloc(sizeof(tcpio_msg_t), flags);
-	memset(tcpinfo, '\0', sizeof(tcp_info_t));
 	return tcpinfo;
 }
 void free_tcp_info(tcp_info_t *tcpinfo)
 {
+	if(tcpinfo->debugfs_created == 1) {
+		debugfs_remove(tcpinfo->dbgfile);
+	}
 	if(tcpinfo) {
 		kfree(tcpinfo);
 	}
@@ -97,13 +101,6 @@ static int init_tcp_info(struct sock *sk, int state)
         unsigned char *sip = (unsigned char *)&inet->inet_saddr;
 	char filename[64];
 	
-	
-
-	ti = kmalloc(sizeof(tcp_info_t), GFP_ATOMIC);
-	if(ti == NULL) {
-		printk("Unable to allocate memory for tcpinfo struct\n");
-		return -1;
-	}
 	if (!filter_connection(sk)) {
 		unsigned char *fdip = (unsigned char *)&gfilter.daddr;
 		unsigned char *fsip = (unsigned char *)&gfilter.saddr;
@@ -116,6 +113,11 @@ static int init_tcp_info(struct sock *sk, int state)
 		return -1;
 	}
 
+	ti = kmalloc(sizeof(tcp_info_t), GFP_ATOMIC);
+	if(ti == NULL) {
+		printk("Unable to allocate memory for tcpinfo struct\n");
+		return -1;
+	}
 	printk("sock_%d.%d.%d.%d.%d_%d.%d.%d.%d.%d matching with filter\n", 
 			sip[0], sip[1], sip[2], sip[3], ntohs(inet->inet_sport),
 			dip[0], dip[1], dip[2], dip[3], ntohs(inet->inet_dport));
@@ -149,12 +151,6 @@ static int init_tcp_info(struct sock *sk, int state)
 	return 0;
 }
 	
-static void uninit_tcp_info(tcp_info_t **tcpinfo)
-{
-	free_tcp_info(*tcpinfo);
-	*tcpinfo = NULL;
-}
-
 static ssize_t tcp_probe_write(struct file *fp, const char __user *user_buffer, 
                                 size_t count, loff_t *position) 
 { 
@@ -181,7 +177,9 @@ static ssize_t tcp_probe_write(struct file *fp, const char __user *user_buffer,
 	
   
 	if (strncmp(command_buf, "clear", strlen("clear")) == 0) {
-		clear_tcp_info(tcpinfo);
+		lh_exit(hashtable);
+		hashtable = NULL;
+		hashtable = lh_init(&ops, 128);
 		return count;
 	} 
 	if ((s=strstr(command_buf, "sport="))) {
@@ -301,6 +299,7 @@ tcp_info_t *get_new_tcpinfo(void)
  
 static int  init_debugfs(void) 
 { 
+	tcp_info_t *tcpinfo = NULL;
 	tcpprobe_ctl = debugfs_create_file("tcpprobe_ctl", 0644, basedir, &filevalue, &tcp_probe_fops);
 	tcpinfo = alloc_tcp_info(GFP_KERNEL);
 	if (!tcpprobe_ctl) { 
@@ -317,7 +316,6 @@ static int  init_debugfs(void)
 
 static void  exit_debugfs(void) 
 { 
-	uninit_tcp_info(&tcpinfo);
 	if (!tcpprobe_ctl) { 
 		debugfs_remove(tcpprobe_ctl);
 	}
@@ -358,6 +356,7 @@ int flush_tcp_entry(void)
 	}
 	return 0;
 }
+#if 0
 int check_pkt(struct sock *sk, tcp_info_t *tcpinfo)
 {
 	struct inet_sock *inet;
@@ -381,6 +380,7 @@ int check_pkt(struct sock *sk, tcp_info_t *tcpinfo)
 	}
 	return 0;
 }
+#endif
 
 int filter_connection(struct sock *sk)
 {
@@ -406,7 +406,7 @@ int filter_connection(struct sock *sk)
 
 lhkey_t getkey(tcp_filter_t *filter)
 {
-	return (filter->saddr ^ filter->daddr ^ ((filter->sport << (sizeof short))|filter->dport));
+	return (filter->saddr ^ filter->daddr ^ ((filter->sport << (sizeof(short int)))|(filter->dport)));
 }
 
 int tcp_probe_search(void *node, void *data)
@@ -423,24 +423,24 @@ int tcp_probe_search(void *node, void *data)
 
 void log_tcp_info(struct sock *sk, struct sk_buff *skb)
 {
-	struct inet_sock *inet;
-        struct tcp_sock *tp;
-        struct tcp_skb_cb *tcb;
-	struct timeval tv;
+	struct inet_sock *inet = inet_sk(sk);
+        struct 	tcp_sock *tp;
+        struct 	tcp_skb_cb *tcb;
+	struct 	timeval tv;
 	tcp_entry_t *te;
 	tcp_info_t *tcpinfo = NULL;
+	lhkey_t	key;
 	tcp_filter_t	filter = { 	
-		.saddr == inet->inet_saddr,
-		.sport == inet->inet_sport,
-		.daddr == inet->inet_daddr,
-		.dport == inet->inet_dport,
+		.saddr=inet->inet_saddr,
+		.sport=inet->inet_sport,
+		.daddr=inet->inet_daddr,
+		.dport=inet->inet_dport,
 	};
 
-	inet = inet_sk(sk);
 	key = getkey(&filter);
 	tcpinfo = lh_search(hashtable, key, &filter);
 
-	if(check_pkt(sk, tcpinfo)) {
+	if(tcpinfo) {
 		te = get_tcp_entry();
 
 		if(te == NULL) {
@@ -483,10 +483,10 @@ void my_tcp_set_state(struct sock *sk, int state)
 			lhkey_t key;
 			tcp_info_t *tcpinfo = NULL;
 			tcp_filter_t	filter = { 	
-				.saddr == inet->inet_saddr,
-				.sport == inet->inet_sport,
-				.daddr == inet->inet_daddr,
-				.dport == inet->inet_dport,
+				.saddr=inet->inet_saddr,
+				.sport=inet->inet_sport,
+				.daddr=inet->inet_daddr,
+				.dport=inet->inet_dport,
 				};
 			key = getkey(&filter);
 			tcpinfo = lh_search(hashtable, key, &filter);
@@ -510,7 +510,6 @@ int tcp_probe_init(void *arg)
 {
 	lframe_entry_t *en = (lframe_entry_t *)arg;
 	int ret;
-	lh_func_t ops = {tcp_probe_search, free_tcp_info};
 	ret = install_probe(&en->probe, (kprobe_opcode_t *)my_tcp_transmit_skb, tcp_probe_fun);
 	ret = install_probe(&connect_probe, (kprobe_opcode_t *)my_tcp_set_state, tcp_set_fun);
 	hashtable = lh_init(&ops, 128);
@@ -523,6 +522,9 @@ void tcp_probe_exit(void *arg)
 	lframe_entry_t *en = (lframe_entry_t *)arg;
 	uninstall_probe(&en->probe, tcp_probe_fun);
 	uninstall_probe(&connect_probe, tcp_set_fun);
+	if(hashtable) {
+		lh_exit(hashtable);
+	}
 	exit_debugfs();
 }
 register_lframe(tcp_probe, tcp_probe_init, tcp_probe_exit);

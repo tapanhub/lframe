@@ -1,3 +1,6 @@
+#include <linux/kernel.h>
+#include <linux/module.h>
+#include <linux/slab.h>
 #include "lframe.h"
 
 
@@ -41,11 +44,11 @@ void * lh_search(lh_table_t *lht, lhkey_t key, void *data)
 {
 	int index = key % lht->size;
 	lh_entry_t *node, *tempnode;
-	ret = 0;
+	int ret = 0;
 	
 	if(lht) {
 		if(lht->table[index].count > 0) {
-			list_for_each_entry_safe(node, tempnode, &lht->table[i].list, list) {
+			list_for_each_entry_safe(node, tempnode, &lht->table[index].list, list) {
 				ret = lht->ops.search((void *)node, data);
 				if(ret == 0) {
 					return node;
@@ -59,16 +62,17 @@ void * lh_search(lh_table_t *lht, lhkey_t key, void *data)
 int lh_insert(lh_table_t *lht, void *entry, lhkey_t key)
 {
 	int index = key % lht->size;
-	list_add(&(lh_entry_t *)entry->list, &lht->table[index].list);
+	list_add(&((lh_entry_t *)entry)->list, &lht->table[index].list);
 	lht->table[index].count++;
+	return 0;
 }
 
 int lh_delete(lh_table_t *lht, void *entry, lhkey_t key)
 {
 	int index = key % lht->size;
-	list_del(&(lh_entry_t *)entry->list, &lht->table[index].list);
+	list_del(&((lh_entry_t *)entry)->list);
 	if(lht->ops.free) {
-		lht->ops.free(node);
+		lht->ops.free(entry);
 	}
 	lht->table[index].count--;
 	if(lht->table[index].count < 0) {

@@ -51,7 +51,9 @@ typedef struct lh_funcs {
 } lh_func_t;
 		
 
-typedef int (*searchfunp_t) (void *);
+typedef int (*searchfunp_t) (void *, void *);
+typedef int (*freefunp_t) (void *);
+
 typedef struct lh_table {
 	int 		size;
 	lh_func_t 	ops;
