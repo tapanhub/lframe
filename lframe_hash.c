@@ -8,9 +8,9 @@ lh_table_t * lh_init(lh_func_t *ops, int size)
 {
 	lh_table_t *lht;
 	int i=0;
-	lht = kmalloc(sizeof(lh_table_t) + size * sizeof(void *), GFP_KERNEL);
+	lht = kmalloc(sizeof(lh_table_t) + size * sizeof(lh_entry_t), GFP_KERNEL);
 	if(lht) {
-		memset(lht, 0, sizeof(lh_table_t) + size * sizeof(void *));
+		memset(lht, 0, sizeof(lh_table_t) + size * sizeof(lh_entry_t));
 		lht->size = size;
 		lht->ops.search = ops->search;
 		lht->ops.free = ops->free;

@@ -99,11 +99,11 @@ static int init_tcp_info(struct sock *sk, int state)
 	struct inet_sock *inet = inet_sk(sk);
         unsigned char *dip = (unsigned char *)&inet->inet_daddr;
         unsigned char *sip = (unsigned char *)&inet->inet_saddr;
+	unsigned char *fdip = (unsigned char *)&gfilter.daddr;
+	unsigned char *fsip = (unsigned char *)&gfilter.saddr;
 	char filename[64];
 	
-	if (!filter_connection(sk)) {
-		unsigned char *fdip = (unsigned char *)&gfilter.daddr;
-		unsigned char *fsip = (unsigned char *)&gfilter.saddr;
+	if (!filter_connection(sk) == 0) {
 		printk("sock_%d.%d.%d.%d.%d_%d.%d.%d.%d.%d and filter_%d.%d.%d.%d.%d_%d.%d.%d.%d.%d do not match\n", 
 			sip[0], sip[1], sip[2], sip[3], ntohs(inet->inet_sport),
 			dip[0], dip[1], dip[2], dip[3], ntohs(inet->inet_dport),
@@ -118,11 +118,12 @@ static int init_tcp_info(struct sock *sk, int state)
 		printk("Unable to allocate memory for tcpinfo struct\n");
 		return -1;
 	}
-	printk("sock_%d.%d.%d.%d.%d_%d.%d.%d.%d.%d matching with filter\n", 
-			sip[0], sip[1], sip[2], sip[3], ntohs(inet->inet_sport),
-			dip[0], dip[1], dip[2], dip[3], ntohs(inet->inet_dport));
+	printk("sock_%d.%d.%d.%d.%d_%d.%d.%d.%d.%d and filter_%d.%d.%d.%d.%d_%d.%d.%d.%d.%d matching with filter\n", 
+		sip[0], sip[1], sip[2], sip[3], ntohs(inet->inet_sport),
+		dip[0], dip[1], dip[2], dip[3], ntohs(inet->inet_dport),
+		fsip[0], fsip[1], fsip[2], fsip[3], ntohs(gfilter.sport),
+		fdip[0], fdip[1], fdip[2], fdip[3], ntohs(gfilter.dport));
 
-	//clear_tcp_info(ti);
 	memset(ti, 0, sizeof(tcp_info_t));
 	(ti->dbgblob).data = ti;
 	(ti->dbgblob).size = (unsigned long)BUFFERSIZE;
@@ -479,7 +480,7 @@ void my_tcp_set_state(struct sock *sk, int state)
 		printk("tcp connection closed(sport=%d,dport=%d, sip=%d.%d.%d.%d dip=%d.%d.%d.%d\n", 
 			ntohs(inet->inet_sport), ntohs(inet->inet_dport), sip[0], sip[1], sip[2], sip[3], 
 			dip[0], dip[1], dip[2], dip[3]);
-		if(filter_connection(sk)) {
+		if(filter_connection(sk) == 0) {
 			lhkey_t key;
 			tcp_info_t *tcpinfo = NULL;
 			tcp_filter_t	filter = { 	
