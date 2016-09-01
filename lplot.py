@@ -74,6 +74,9 @@ def rebase_items(uarray):
 	for item in uarray[1:]:
 		value=convert_time(item)
 		value=list(value)
+		print "basevalue[1]=%d value[1]=%d\n" % (basevalue[1], value[1])
+		if value[1] < basevalue[1]: 
+			value[1] = 2^32 + (value[1])
 		value[0]=value[0]-basevalue[0]
 		value[1]=value[1]-basevalue[1]
 		value[2]=value[2]-basevalue[2]

@@ -43,7 +43,10 @@ typedef struct {
 
 
 tcpio_work_t tcpio_work;
-
+int  get_tcpio_status(void)
+{
+	return tcpio_info->connected;
+}
 void *alloc_tcpio_mem(int size)
 {
 	tcpio_msg_t *tmsg;

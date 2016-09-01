@@ -42,6 +42,7 @@ typedef struct 	tcp_entry {
 typedef struct 	tcp_probe_info {
 	struct	list_head list;
 	int 	connection_state;
+	int 	io_state;	/* 0 unknown, 1 connected, -1 failed */
 	int 	tsize;
 	int 	usize;
 	int 	hsize;
@@ -83,6 +84,12 @@ tcp_info_t * alloc_tcp_info(gfp_t flags)
 	tcpinfo = kmalloc(sizeof(tcpio_msg_t), flags);
 	return tcpinfo;
 }
+
+int tcpprobe_io_send(void *msg)
+{
+	return io_send(msg);
+}
+	
 void free_tcp_info(tcp_info_t *tcpinfo)
 {
 	if(tcpinfo->debugfs_created == 1) {
@@ -322,13 +329,25 @@ static void  exit_debugfs(void)
 	}
 } 
 
-tcp_entry_t *get_tcp_entry(void)
+tcp_entry_t *get_tcp_entry(tcp_info_t *tcpinfo)
 {
 	tcp_entry_t *te = NULL;
 	int allocated = 0;
 
 	if (tecount >= TCPENTRIES) {
-		tcpio_send(gtmsg);
+		if(tcpinfo->io_state == 0 || tcpinfo->io_state == 1) {
+			tcpprobe_io_send(gtmsg);
+			tcpinfo->io_state = 2;
+		} else if (tcpinfo->io_state == 2) {
+			if(get_io_status() == 0) {
+				printk("logging stopped as io connection is still not ready\n");
+				tcpinfo->io_state=-1;
+			} else {
+				tcpinfo->io_state=1;
+			}
+		} else {
+			return NULL;
+		}
 		gtmsg = NULL;
 		tecount = 0;
 	}
@@ -351,37 +370,12 @@ int flush_tcp_entry(void)
 {	
 	if(gtmsg != NULL && tecount > 0) {
 		gtmsg->len = sizeof(tcp_entry_t) * tecount;
-		tcpio_send(gtmsg);
+		tcpprobe_io_send(gtmsg);
 		gtmsg = NULL;
 		tecount = 0;
 	}
 	return 0;
 }
-#if 0
-int check_pkt(struct sock *sk, tcp_info_t *tcpinfo)
-{
-	struct inet_sock *inet;
-
-	inet = inet_sk(sk);
-
-	if((tcpinfo->saddr == inet->inet_saddr) && (tcpinfo->sport == inet->inet_sport) && 
-	(tcpinfo->daddr == inet->inet_daddr) && (tcpinfo->dport == inet->inet_dport)) {
-		return 1;
-	} else {
-		unsigned char *dip = (unsigned char *)&inet->inet_daddr;
-		unsigned char *sip = (unsigned char *)&inet->inet_saddr;
-		unsigned char *fdip = (unsigned char *)&tcpinfo->daddr;
-		unsigned char *fsip = (unsigned char *)&tcpinfo->saddr;
-		printk("tcp connection info: sport=%d,dport=%d, sip=%d.%d.%d.%d dip=%d.%d.%d.%d\n", 
-			ntohs(inet->inet_sport), ntohs(inet->inet_dport), sip[0], sip[1], sip[2], sip[3], 
-			dip[0], dip[1], dip[2], dip[3]);
-		printk("tcp connection info: sport=%d,dport=%d, sip=%d.%d.%d.%d dip=%d.%d.%d.%d\n", 
-			ntohs(tcpinfo->sport), ntohs(tcpinfo->dport), fsip[0], fsip[1], fsip[2], fsip[3], 
-			fdip[0], fdip[1], fdip[2], fdip[3]);
-	}
-	return 0;
-}
-#endif
 
 int filter_connection(struct sock *sk)
 {
@@ -442,11 +436,9 @@ void log_tcp_info(struct sock *sk, struct sk_buff *skb)
 	tcpinfo = lh_search(hashtable, key, &filter);
 
 	if(tcpinfo) {
-		te = get_tcp_entry();
+		te = get_tcp_entry(tcpinfo);
 
 		if(te == NULL) {
-			if(printk_ratelimit()) 
- 				printk("get_tcp_entry returned NULL\n"); 
 			return;
 		}
 

@@ -63,10 +63,12 @@ typedef struct lh_table {
 extern void *alloc_tcpio_mem(int size);
 extern void free_tcpio_mem(void *buf);
 extern int tcpio_send(tcpio_msg_t *tmsg);
+extern int  get_tcpio_status(void);
 
 extern struct lframe_config lfconfig;
 extern void cleanup_tcpio(void);
 extern int init_tcpio(void);
+extern int create_socket(void);
 
 
 extern lh_table_t * lh_init(lh_func_t *ops, int size);
@@ -106,6 +108,20 @@ static inline void uninstall_probe(struct jprobe *probe, char *symbol)
 	unregister_jprobe(probe);
 	printk("jprobe %s unregistered\n", symbol?:"");
 }
+
+static inline int io_open(void)
+{
+	return create_socket();	
+}
+static inline int io_send(void *arg)
+{
+	return tcpio_send(arg);
+}
+static inline int get_io_status(void)
+{
+	return get_tcpio_status();
+}
+
 extern struct dentry *basedir; 
 int init_lframectl(void);
 int exit_lframectl(void);
