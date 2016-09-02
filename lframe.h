@@ -36,6 +36,12 @@ typedef struct {
 	char	buffer[];
 } tcpio_msg_t;
 
+typedef struct {
+	unsigned int msgtype;
+	unsigned int msgid;
+	unsigned int msglen;
+} lio_hdr_t;
+
 typedef unsigned int lhkey_t;
 
 typedef struct lh_entry {
@@ -49,16 +55,20 @@ typedef struct lh_funcs {
 	int (*search) (void *, void *);	
 	int (*free) (void *);
 } lh_func_t;
-		
-
-typedef int (*searchfunp_t) (void *, void *);
-typedef int (*freefunp_t) (void *);
-
 typedef struct lh_table {
 	int 		size;
 	lh_func_t 	ops;
 	lh_entry_t 	table[];
 } lh_table_t;
+	
+enum lframe_msg_type {
+	TCP_PROBE,
+	MAX_MSGTYPE
+	};
+
+typedef int (*searchfunp_t) (void *, void *);
+typedef int (*freefunp_t) (void *);
+
 
 extern void *alloc_tcpio_mem(int size);
 extern void free_tcpio_mem(void *buf);

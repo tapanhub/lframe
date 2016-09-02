@@ -28,29 +28,30 @@ typedef struct tcp_filter {
 
 struct jprobe 	connect_probe;
 typedef struct 	tcp_entry {
+	lio_hdr_t 		hdr;
 	struct 	timeval 	tv;
-	int 	seq;
-	int 	ack;
-	int 	snd_ssthresh;
-	int 	snd_cwnd;
-	int 	rcv_wnd;
-	int 	srtt_us;
-	int 	packets_out;
-	
+	int 			seq;
+	int 			ack;
+	int 			snd_ssthresh;
+	int 			snd_cwnd;
+	int 			rcv_wnd;
+	int 			srtt_us;
+	int 			packets_out;
 } tcp_entry_t;
 
 typedef struct 	tcp_probe_info {
-	struct	list_head list;
-	int 	connection_state;
-	int 	io_state;	/* 0 unknown, 1 connected, -1 failed */
-	int 	tsize;
-	int 	usize;
-	int 	hsize;
-	int 	idx;
+	struct list_head list;
+	int 		connection_state;
+	int 		io_state;	/* 0 unknown, 1 connected, -1 failed */
+	int 		tsize;
+	int 		usize;
+	int 		hsize;
+	int 		idx;
 	tcp_filter_t	filter;
-	int 	debugfs_created;
-	struct 	dentry *dbgfile; 
-	lhkey_t	key;
+	int 		debugfs_created;
+	struct 	dentry 	*dbgfile; 
+	lhkey_t		key;
+	unsigned int	msgid;
 	struct 	debugfs_blob_wrapper dbgblob;
 } tcp_info_t;
 
@@ -73,6 +74,7 @@ char 			command_buf[COMMAND_MAX_LEN + 4];
 int 			filevalue; 
 tcp_filter_t		gfilter;	
 static lh_table_t 	*hashtable;
+static unsigned int	gmsgid=1;
 lh_func_t ops = {(searchfunp_t)tcp_probe_search, (freefunp_t)free_tcp_info};
 
 
@@ -120,7 +122,7 @@ static int init_tcp_info(struct sock *sk, int state)
 		return -1;
 	}
 
-	ti = kmalloc(sizeof(tcp_info_t), GFP_ATOMIC);
+	ti = get_new_tcpinfo();
 	if(ti == NULL) {
 		printk("Unable to allocate memory for tcpinfo struct\n");
 		return -1;
@@ -131,7 +133,6 @@ static int init_tcp_info(struct sock *sk, int state)
 		fsip[0], fsip[1], fsip[2], fsip[3], ntohs(gfilter.sport),
 		fdip[0], fdip[1], fdip[2], fdip[3], ntohs(gfilter.dport));
 
-	memset(ti, 0, sizeof(tcp_info_t));
 	(ti->dbgblob).data = ti;
 	(ti->dbgblob).size = (unsigned long)BUFFERSIZE;
 	
@@ -301,6 +302,8 @@ tcp_info_t *get_new_tcpinfo(void)
 	if(node) {
 		memset(node, 0, sizeof(tcp_info_t));
 		INIT_LIST_HEAD(&node->list);
+		node->msgid=gmsgid;
+		gmsgid++;
 	}
 	return node;
 }
@@ -361,7 +364,9 @@ tcp_entry_t *get_tcp_entry(tcp_info_t *tcpinfo)
 		allocated=1;
 	}
 	te = &(((tcp_entry_t *)gtmsg->buffer)[tecount]);
-	//printk("count = %d allocated =%d te=%#x\n", tecount, allocated, (unsigned int)te);
+	te->hdr.msgtype = TCP_PROBE;
+	te->hdr.msgid = tcpinfo->msgid;
+	te->hdr.msglen = sizeof(*te);
 	tecount++;
 	return te;
 }
@@ -379,11 +384,9 @@ int flush_tcp_entry(void)
 
 int filter_connection(struct sock *sk)
 {
-
 	struct inet_sock *inet;
 
 	inet = inet_sk(sk);
-
 	if(gfilter.saddr != 0 && !(gfilter.saddr == inet->inet_saddr)) {
 		return 1;
 	}
