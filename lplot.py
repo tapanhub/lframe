@@ -34,12 +34,56 @@ typedef struct tcp_entry {
         int packets_out;
 
 } tcp_entry_t;
+typedef struct {
+	unsigned int msgtype;
+	unsigned int msgid;
+	unsigned int msglen;
+} lio_hdr_t;
+typedef struct {
+	unsigned int msgtype;
+	unsigned int msgid;
+	unsigned int msglen;
+} lio_hdr_t;
 
 """
+msghdr=("msgtype", "msgid", "msglen")
 header=("conn_state", "tsize", "usize", "hsize", "max_idx", "idx", "saddr", "daddr", "sport", "dport") 
 uhdr=("sec", "usec", "seq", "ack", "snd_ssthresh", "snd_cwnd", "rcv_wnd", "srtt_us", "packets_out","r")
 version="v1.0"
+class tcpproble:
+	def __init__(self):
+		self.data=[]
+		self.uhdr=("sec", "usec", "seq", "ack", "snd_ssthresh", "snd_cwnd", "rcv_wnd", "srtt_us", "packets_out","r")
+	def adddata(self, data):
+		self.data.append(
 
+class ldata:
+	def __init__(self, reader):
+		self.reader=reader
+		self.msghdr=("msgtype", "msgid", "msglen")
+		self.hdrsize=12
+		self.tcpprobelist=[]
+	def process(self):
+		tcpprobe_idseen=-1
+		while 1:
+			hdr=self.reader(12)
+			if not hdr || (len(hdr) != 12):
+				break
+			h=unpack('III', hdr)
+			ud=dict(zip(self.msghdr, h))
+			if ud['msgtype'] == 0:	#TCPPROBE
+				tpdata=self.reader(ud['msglen'])
+				if not tpdata || (len(tpdata) != ud['msglen']):
+					break
+				if ud['msgid'] > tcpprobe_idseen:
+					self.tcpprobelist.append(tcpprobe())
+					tcpprobe_idseen = tcpprobe_idseen+1
+				if ud['msgid'] >= len(self.tcpprobelist):
+					print "something wrong.. msgid (%d) is not matching with listlen(%d)\n" % (ud['msgid'], len(self.tcpprobelist))
+					continue
+				self.tcpprobelist[ud['msgid']].adddata(tpdata)
+		for tp in self.tcpprobelist:
+			tp.plot()
 def int_2_ip(ip, end=0):
 	h="%08x" % ip
 	hexdata=h.decode("hex")
