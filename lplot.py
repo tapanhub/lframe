@@ -50,40 +50,7 @@ msghdr=("msgtype", "msgid", "msglen")
 header=("conn_state", "tsize", "usize", "hsize", "max_idx", "idx", "saddr", "daddr", "sport", "dport") 
 uhdr=("sec", "usec", "seq", "ack", "snd_ssthresh", "snd_cwnd", "rcv_wnd", "srtt_us", "packets_out","r")
 version="v1.0"
-class tcpproble:
-	def __init__(self):
-		self.data=[]
-		self.uhdr=("sec", "usec", "seq", "ack", "snd_ssthresh", "snd_cwnd", "rcv_wnd", "srtt_us", "packets_out","r")
-	def adddata(self, data):
-		self.data.append(
 
-class ldata:
-	def __init__(self, reader):
-		self.reader=reader
-		self.msghdr=("msgtype", "msgid", "msglen")
-		self.hdrsize=12
-		self.tcpprobelist=[]
-	def process(self):
-		tcpprobe_idseen=-1
-		while 1:
-			hdr=self.reader(12)
-			if not hdr || (len(hdr) != 12):
-				break
-			h=unpack('III', hdr)
-			ud=dict(zip(self.msghdr, h))
-			if ud['msgtype'] == 0:	#TCPPROBE
-				tpdata=self.reader(ud['msglen'])
-				if not tpdata || (len(tpdata) != ud['msglen']):
-					break
-				if ud['msgid'] > tcpprobe_idseen:
-					self.tcpprobelist.append(tcpprobe())
-					tcpprobe_idseen = tcpprobe_idseen+1
-				if ud['msgid'] >= len(self.tcpprobelist):
-					print "something wrong.. msgid (%d) is not matching with listlen(%d)\n" % (ud['msgid'], len(self.tcpprobelist))
-					continue
-				self.tcpprobelist[ud['msgid']].adddata(tpdata)
-		for tp in self.tcpprobelist:
-			tp.plot()
 def int_2_ip(ip, end=0):
 	h="%08x" % ip
 	hexdata=h.decode("hex")
@@ -104,6 +71,11 @@ def get_samples(data):
 		uarray.append(udata)
 		ud=dict(zip(uhdr, udata))
 	return uarray
+def get_sample(data):
+	udata=unpack('QQIIIIIIIi', data[(i*48):((i+1)*48)])
+	ud=dict(zip(uhdr, udata))
+	return ud
+
 def convert_time(item):
 	basetime=item[0] + (item[1]/1000000)
 	basevalue=[basetime]
@@ -128,6 +100,59 @@ def rebase_items(uarray):
 		print value
 	return rebase_uarray
 
+def plot_timeseq(rebase_uarray):
+	print 'items received:%d' % (len(rebase_uarray))
+	plt.plot([x[0] for x in rebase_uarray], [x[1] for x in rebase_uarray])
+	plt.xlabel('time (s)')
+	plt.ylabel('bytes transmitted from server')
+	plt.title('TCP time vs server data')
+	plt.grid(True)
+	plt.savefig(inputopts['inputfile']+"_timesequence.png")
+	plt.show()
+
+class tcpproble:
+	def __init__(self):
+		self.data=[]
+		self.rebase_data=[]
+		self.uhdr=("sec", "usec", "seq", "ack", "snd_ssthresh", "snd_cwnd", "rcv_wnd", "srtt_us", "packets_out","r")
+	def adddata(self, dt, length):
+		if length == 48:
+			dc=get_sample(dt)
+			self.data.append(dc)
+		else:
+			print "tcpprobe: wrong length in the header = %d" % (length)
+	def plot(self, plottype=0):
+		if plottype == 0:
+			self.rebase_data=rebase_items(self.data)
+			plot_timeseq(self.rebase_data)
+class ldata:
+	def __init__(self, reader):
+		self.reader=reader
+		self.msghdr=("msgtype", "msgid", "msglen")
+		self.hdrsize=12
+		self.tcpprobelist=[]
+	def process(self):
+		tcpprobe_idseen=-1
+		while 1:
+			hdr=self.reader(12)
+			if not hdr or (len(hdr) != 12):
+				break
+			h=unpack('III', hdr)
+			ud=dict(zip(self.msghdr, h))
+			print ud
+			if ud['msgtype'] == 0:	#TCPPROBE
+				tpdata=self.reader(ud['msglen'])
+				if not tpdata or (len(tpdata) != ud['msglen']):
+					break
+				if ud['msgid'] > tcpprobe_idseen:
+					self.tcpprobelist.append(tcpprobe())
+					tcpprobe_idseen = tcpprobe_idseen+1
+				if ud['msgid'] >= len(self.tcpprobelist):
+					print "something wrong.. msgid (%d) is not matching with listlen(%d)\n" % (ud['msgid'], len(self.tcpprobelist))
+					continue
+				self.tcpprobelist[ud['msgid']].adddata(tpdata, ud['msglen'])
+		for tp in self.tcpprobelist:
+			tp.plot()
 
 def main(argv):
 	inputopts={'inputfile':''}
@@ -150,22 +175,11 @@ def main(argv):
 		sys.exit(2)
 
 	f=open(inputopts['inputfile'])
-	filebuf=f.read();
+	ld = ldata(f.read)
+	ld.process()
 	f.close()
 
-	uarray=get_samples(filebuf)
-	print 'uarray received:%d' % (len(uarray))
-	rebase_uarray=rebase_items(uarray)
-	print 'items received:%d' % (len(rebase_uarray))
-
-	plt.plot([x[0] for x in rebase_uarray], [x[1] for x in rebase_uarray])
-	plt.xlabel('time (s)')
-	plt.ylabel('bytes transmitted from server')
-	plt.title('TCP time vs server data')
-	plt.grid(True)
-	plt.savefig(inputopts['inputfile']+".png")
-	plt.show()
-	
+		
 if __name__ == '__main__':
 	try:
 		main(sys.argv)
