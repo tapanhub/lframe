@@ -93,7 +93,10 @@ def rebase_items(uarray):
 		value=convert_time(item)
 		value=list(value)
 		if value[1] < basevalue[1]: 
-			value[1] = 2^32 + (value[1])
+			print "basevalue is higher than current value\n"
+			print basevalue 
+			print value 
+			value[1] = 2**32 + (value[1])
 		value[0]=value[0]-basevalue[0]
 		value[1]=value[1]-basevalue[1]
 		value[2]=value[2]-basevalue[2]
