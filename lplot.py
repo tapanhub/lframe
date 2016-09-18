@@ -4,6 +4,7 @@ from struct import *
 import socket, os, sys, getopt
 import matplotlib.pyplot as plt
 
+inputopts={'inputfile':''}
 """
 typedef struct tcp_probe_info {
 	int connection_state;
@@ -72,11 +73,12 @@ def get_samples(data):
 		ud=dict(zip(uhdr, udata))
 	return uarray
 def get_sample(data):
-	udata=unpack('QQIIIIIIIi', data[(i*48):((i+1)*48)])
-	ud=dict(zip(uhdr, udata))
-	return ud
+	udata=unpack('QQIIIIIIIi', data[:48])
+	#ud=dict(zip(uhdr, udata))
+	return udata
 
 def convert_time(item):
+	
 	basetime=item[0] + (item[1]/1000000)
 	basevalue=[basetime]
 	basevalue.extend(list(item[2:]))
@@ -90,14 +92,12 @@ def rebase_items(uarray):
 	for item in uarray[1:]:
 		value=convert_time(item)
 		value=list(value)
-		print "basevalue[1]=%d value[1]=%d\n" % (basevalue[1], value[1])
 		if value[1] < basevalue[1]: 
 			value[1] = 2^32 + (value[1])
 		value[0]=value[0]-basevalue[0]
 		value[1]=value[1]-basevalue[1]
 		value[2]=value[2]-basevalue[2]
 		rebase_uarray.append((value))
-		print value
 	return rebase_uarray
 
 def plot_timeseq(rebase_uarray):
@@ -110,7 +110,7 @@ def plot_timeseq(rebase_uarray):
 	plt.savefig(inputopts['inputfile']+"_timesequence.png")
 	plt.show()
 
-class tcpproble:
+class tcpprobe:
 	def __init__(self):
 		self.data=[]
 		self.rebase_data=[]
@@ -128,34 +128,31 @@ class tcpproble:
 class ldata:
 	def __init__(self, reader):
 		self.reader=reader
-		self.msghdr=("msgtype", "msgid", "msglen")
-		self.hdrsize=12
+		self.msghdr=("msgtype", "msgid", "msglen", "res")
+		self.hdrsize=16
 		self.tcpprobelist=[]
+		self.idmap={}
 	def process(self):
-		tcpprobe_idseen=-1
+		index=0
 		while 1:
-			hdr=self.reader(12)
-			if not hdr or (len(hdr) != 12):
+			hdr=self.reader(self.hdrsize)
+			if not hdr or (len(hdr) != self.hdrsize):
 				break
-			h=unpack('III', hdr)
+			h=unpack('IIII', hdr)
 			ud=dict(zip(self.msghdr, h))
-			print ud
 			if ud['msgtype'] == 0:	#TCPPROBE
 				tpdata=self.reader(ud['msglen'])
 				if not tpdata or (len(tpdata) != ud['msglen']):
 					break
-				if ud['msgid'] > tcpprobe_idseen:
+				if  not ud['msgid'] in self.idmap.keys():
+					self.idmap[ud['msgid']]=index
+					index = index+1
 					self.tcpprobelist.append(tcpprobe())
-					tcpprobe_idseen = tcpprobe_idseen+1
-				if ud['msgid'] >= len(self.tcpprobelist):
-					print "something wrong.. msgid (%d) is not matching with listlen(%d)\n" % (ud['msgid'], len(self.tcpprobelist))
-					continue
-				self.tcpprobelist[ud['msgid']].adddata(tpdata, ud['msglen'])
+				self.tcpprobelist[self.idmap[ud['msgid']]].adddata(tpdata, ud['msglen'])
 		for tp in self.tcpprobelist:
 			tp.plot()
 
 def main(argv):
-	inputopts={'inputfile':''}
 	try:
 		opts, args = getopt.getopt(argv[1:], "vhi:", ["version", "ifile="])
 	except getopt.GetoptError:

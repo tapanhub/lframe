@@ -366,7 +366,7 @@ tcp_entry_t *get_tcp_entry(tcp_info_t *tcpinfo)
 	te = &(((tcp_entry_t *)gtmsg->buffer)[tecount]);
 	te->hdr.msgtype = TCP_PROBE;
 	te->hdr.msgid = tcpinfo->msgid;
-	te->hdr.msglen = sizeof(*te);
+	te->hdr.msglen = sizeof(*te)-sizeof(lio_hdr_t);
 	tecount++;
 	return te;
 }

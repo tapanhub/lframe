@@ -40,6 +40,7 @@ typedef struct {
 	unsigned int msgtype;
 	unsigned int msgid;
 	unsigned int msglen;
+	unsigned int reserved;
 } lio_hdr_t;
 
 typedef unsigned int lhkey_t;
