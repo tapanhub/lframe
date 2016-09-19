@@ -83,7 +83,7 @@ lh_func_t ops = {(searchfunp_t)tcp_probe_search, (freefunp_t)free_tcp_info};
 tcp_info_t * alloc_tcp_info(gfp_t flags)
 {
 	tcp_info_t *tcpinfo;
-	tcpinfo = kmalloc(sizeof(tcpio_msg_t), flags);
+	tcpinfo = kmalloc(sizeof(tcp_info_t), flags);
 	return tcpinfo;
 }
 
@@ -486,7 +486,9 @@ void my_tcp_set_state(struct sock *sk, int state)
 				};
 			key = getkey(&filter);
 			tcpinfo = lh_search(hashtable, key, &filter);
-			lh_delete(hashtable, tcpinfo, key);
+			if(tcpinfo) {
+				lh_delete(hashtable, tcpinfo, key);
+			}
 			flush_tcp_entry();
 		}
 	}
