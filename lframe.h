@@ -61,11 +61,32 @@ typedef struct lh_table {
 	lh_func_t 	ops;
 	lh_entry_t 	table[];
 } lh_table_t;
-	
+
+/**********************************************************************
+ * lframe_msg_type enum holds different types messages supported 
+**********************************************************************/
+
 enum lframe_msg_type {
 	TCP_PROBE,
 	MAX_MSGTYPE
 	};
+
+/**********************************************************************
+ * struct lf_timer is a reference struct, which holds information 
+ * about active timers actived by lframe
+**********************************************************************/
+
+typedef void (*lftimerfun)(unsigned long arg);
+
+typedef struct lf_timer {
+	struct 	list_head list;
+	struct timer_list timer;
+	lftimerfun	handler;
+	unsigned long	data;
+	int		interval;
+	int		active;
+} lftimer_t;
+
 
 typedef int (*searchfunp_t) (void *, void *);
 typedef int (*freefunp_t) (void *);
