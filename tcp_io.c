@@ -39,6 +39,7 @@ static struct 	workqueue_struct *tcpio_wq;
 typedef struct {
 	struct	work_struct work;
 	struct	list_head list;
+	spinlock_t tcpio_lock;
 } tcpio_work_t;
 
 
@@ -121,7 +122,9 @@ int tcpio_send(tcpio_msg_t *tmsg)
 	int ret = -1;
 	if(tmsg) {
 		INIT_LIST_HEAD(&tmsg->list);	
+		spin_lock(&tcpio_work.tcpio_lock);
 		list_add(&tmsg->list, &tcpio_work.list);
+		spin_unlock(&tcpio_work.tcpio_lock);
 		ret = queue_work( tcpio_wq, (struct work_struct *)&tcpio_work);
 	}
 	return ret;
@@ -153,7 +156,9 @@ void tcpio_wq_function(struct work_struct *work)
 			}
 		}
 
+		spin_lock(&tcpio_work.tcpio_lock);
     		list_del(&node->list);
+		spin_unlock(&tcpio_work.tcpio_lock);
 		free_tcpio_mem(node);
 	}
 }
@@ -165,6 +170,7 @@ int tcpio_start()
 	if (tcpio_wq) {
 		/* Queue some work (item 1) */
 		INIT_LIST_HEAD(&tcpio_work.list);
+		tcpio_work.tcpio_lock = __SPIN_LOCK_UNLOCKED(tcpio_work.tcpio_lock);
 		INIT_WORK( (struct work_struct *)&tcpio_work, tcpio_wq_function );
 	} else {
 		printk("Unable to create workqueue \"tcpio_queue\"\n");
