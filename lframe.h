@@ -15,7 +15,7 @@ typedef void (*lframe_exit_t)(void *);
 typedef struct lframe_entry {
     	lframe_init_t init;
     	lframe_exit_t exit;
-	char *modname;
+	char modname[16];
 	struct jprobe probe;
 	char *data;
 	int  tsize;
@@ -109,6 +109,16 @@ extern void * lh_search(lh_table_t *lht, lhkey_t key, void *data);
 extern int lh_insert(lh_table_t *lht, void *entry, lhkey_t key);
 extern int lh_delete(lh_table_t *lht, void *entry, lhkey_t key);
 
+
+extern int init_lftimer(void);
+extern lftimer_t * lftimer_create(lftimerfun handler, unsigned long data, int secs);
+extern int lftimer_start(lftimer_t *node);
+extern int lftimer_stop(lftimer_t *node);
+extern int lftimer_delete(lftimer_t *delnode);
+extern int lftimer_mod(lftimer_t *node);
+extern int exit_lftimer(void);
+extern void __hexdump(unsigned char *start, int size, char *funname, int line);
+
 #define register_lframe(name, initfun, exitfun)		\
     static lframe_entry_t __lframe_ ## initfun ## exitfun	\
     __attribute__((__section__("LFRAME"))) __used = {			\
@@ -116,6 +126,11 @@ extern int lh_delete(lh_table_t *lht, void *entry, lhkey_t key);
 	.exit = (lframe_exit_t)exitfun,					\
 	.modname = #name,					\
     }
+
+#define hexdump(ptr, size) \
+	do {\
+		__hexdump(ptr, size, (char *)__func__, (int) __LINE__);\
+	}while (0)
 
 static inline int install_probe(struct jprobe *probe, kprobe_opcode_t *cb, char *symbol )
 {

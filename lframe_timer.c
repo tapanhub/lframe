@@ -58,7 +58,10 @@ int lftimer_stop(lftimer_t *node)
 	}
 	return 0;
 }
-
+int lftimer_mod(lftimer_t *node)
+{
+	return mod_timer(&(node->timer), jiffies + (node->interval * HZ));
+}
 int lftimer_delete(lftimer_t *delnode)
 {
 	lftimer_t *node, *tempnode;

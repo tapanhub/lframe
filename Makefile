@@ -1,7 +1,7 @@
 #KDIR=/lib/modules/$(shell uname -r)/build
 KDIR=/home/tapan/digichip/linux/linux-4.0
 obj-m += lframe.o
-lframe-objs := lframe_init.o tcp_probe.o lframe_ctl.o tcp_io.o lframe_hash.o lframe_timer.o
+lframe-objs := lframe_init.o tcp_probe.o lframe_ctl.o tcp_io.o lframe_hash.o lframe_timer.o mem_probe.o lframe_debug.o
 ldflags-y += -T$(M)/lframe.lds
 
 all:

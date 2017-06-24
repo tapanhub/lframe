@@ -32,10 +32,16 @@ int init_module(void)
 	init_debugfs();
 	init_lframectl();
 	init_lframeio();
+	init_lftimer();
 
     	for ( ; entry < &__stop_LFRAME; ++entry) {
 		printk("initializing %s: \n", entry->modname);
-		entry->init(entry);
+		if(entry->init) {
+			entry->init(entry);
+		} else {
+			printk("[%s] init = NULL\n", entry->modname);
+		}
+		//hexdump((unsigned char *)entry, sizeof(lframe_entry_t));
     	}
 	return 0;
 }
@@ -46,8 +52,13 @@ void cleanup_module(void)
 
     	for ( ; entry < &__stop_LFRAME; ++entry) {
 		printk("uninitializing %s: \n", entry->modname);
-		entry->exit(entry);
+		if(entry->exit) {
+			entry->exit(entry);
+		} else {
+			printk("[%s] exit = NULL\n", entry->modname);
+		}
     	}
+	exit_lftimer();
 	exit_lframeio();
 	exit_lframectl();
 	exit_debugfs();
