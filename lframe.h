@@ -68,6 +68,7 @@ typedef struct lh_table {
 
 enum lframe_msg_type {
 	TCP_PROBE,
+	MEM_PROBE,
 	MAX_MSGTYPE
 	};
 
