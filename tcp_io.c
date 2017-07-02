@@ -72,6 +72,7 @@ int create_socket(void)
 	int error;
 	struct socket *socket;
 	struct sockaddr_in sin;
+	char one = 1;
 
 	if(tcpio_info->connected == 1 && lfconfig.reconfig != 1) {
 		printk("already connected\n");
@@ -91,6 +92,7 @@ int create_socket(void)
 
 	socket = tcpio_info->client_socket;
 	tcpio_info->client_socket->sk->sk_reuse = 1;
+	socket->ops->setsockopt(socket, SOL_TCP, TCP_NODELAY, &one, sizeof(one));
 
 	if(lfconfig.serverip != 0) {
 		sin.sin_addr.s_addr = lfconfig.serverip;

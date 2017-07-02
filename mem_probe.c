@@ -105,8 +105,6 @@ void get_meminfo(unsigned long arg)
 
 	io_send(gtmsg);
 	
-	printk(" %s called \n", __func__);
-
 end:
 	lftimer_mod(t);
 }
